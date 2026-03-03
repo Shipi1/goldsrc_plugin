@@ -1,0 +1,27 @@
+[package]
+name = "goldsrc_plugin"
+version = "0.1.0"
+edition = "2021"
+authors = ["shipi <ariasmartin1@gmail.com>"]
+license = "GPL-3.0-or-later"
+homepage = "shipisnature.com"
+description = "GoldSrc-based reverb plugin"
+
+[workspace]
+members = ["xtask"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
+goldsrc_dsp = { git = "https://github.com/Shipi1/goldsrc_dsp.git", rev = "17d5655" }
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = "none"
