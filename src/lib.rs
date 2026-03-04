@@ -310,7 +310,15 @@ impl Plugin for GoldsrcPlugin {
         if room != self.last_room {
             self.last_room = room;
             self.current_preset = PRESETS[(room as usize).min(PRESETS.len() - 1)];
-            self.knob_snapshot = build_preset_from_params(&self.params);
+            let knobs = build_preset_from_params(&self.params);
+            // Apply saved knob overrides immediately (handles .vstpreset loads
+            // where all params are restored before the first process() call).
+            for i in 0..9 {
+                if knobs[i] != self.current_preset[i] {
+                    self.current_preset[i] = knobs[i];
+                }
+            }
+            self.knob_snapshot = knobs;
         } else {
             let knobs = build_preset_from_params(&self.params);
             for i in 0..9 {
