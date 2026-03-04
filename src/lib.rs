@@ -26,6 +26,9 @@ struct GoldsrcPlugin {
 
     /// Tracks the last room value to detect room changes.
     last_room: i32,
+
+    /// Tracks the last seed value to detect seed changes.
+    last_seed: i64,
 }
 
 // ─── Parameters ──────────────────────────────────────────────────────────────
@@ -77,6 +80,9 @@ struct GoldsrcPluginParams {
 
     #[id = "haas_time"]
     pub haas_time: FloatParam,
+
+    #[id = "seed"]
+    pub seed: IntParam,
 }
 
 // ─── Preset helpers ───────────────────────────────────────────────────────────
@@ -113,6 +119,7 @@ impl Default for GoldsrcPlugin {
             current_preset: PRESETS[DEFAULT_ROOM],
             knob_snapshot: [0.0; 9], // will be set on first process() block
             last_room: -1,           // forces PRESETS load on first block
+            last_seed: -1,           // forces seed apply on first block
         }
     }
 }
@@ -189,6 +196,8 @@ impl Default for GoldsrcPluginParams {
                 0.01,
                 FloatRange::Linear { min: 0.0, max: 0.1 },
             ),
+
+            seed: IntParam::new("RNG Seed", 42, IntRange::Linear { min: 0, max: 100 }),
         }
     }
 }
@@ -311,6 +320,12 @@ impl Plugin for GoldsrcPlugin {
             reverb.set_reverb_mix(reverb_mix);
             reverb.set_delay_mix(delay_mix);
             reverb.set_clip_mode(clip_mode);
+
+            let seed = self.params.seed.value() as i64;
+            if seed != self.last_seed {
+                self.last_seed = seed;
+                reverb.set_rng_seed(seed as u64);
+            }
 
             reverb.process(
                 &self.scratch_l[..n],
