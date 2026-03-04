@@ -49,9 +49,9 @@ struct GoldsrcPluginParams {
     #[id = "delay_mix"]
     pub delay_mix: FloatParam,
 
-    /// Soft (tanh) clipping above 0.8 instead of hard clamp to ±1.0.
+    /// Output limiter mode: 0 = Off, 1 = Soft (tanh), 2 = Hard (clamp).
     #[id = "clip_soft"]
-    pub clip_soft: BoolParam,
+    pub clip_soft: IntParam,
 
     // Individual preset knobs — map 1:1 to Preset's [f32; 9]
     #[id = "enable_amplp"]
@@ -76,7 +76,7 @@ struct GoldsrcPluginParams {
     pub delay_feedback: FloatParam,
 
     #[id = "enable_dellp"]
-    pub enable_dellp: FloatParam,
+    pub enable_dellp: BoolParam,
 
     #[id = "haas_time"]
     pub haas_time: FloatParam,
@@ -98,7 +98,7 @@ fn build_preset_from_params(p: &GoldsrcPluginParams) -> Preset {
         if p.enable_revlp.value() { 1.0 } else { 0.0 }, // [4] P_RVBLP
         p.delay_time.value(),                           // [5] P_DELAY
         p.delay_feedback.value(),                       // [6] P_FEEDBACK
-        p.enable_dellp.value(),                         // [7] P_DLYLP
+        if p.enable_dellp.value() { 0.0 } else { 2.0 }, // [7] P_DLYLP
         p.haas_time.value(),                            // [8] P_LEFT
     ]
 }
@@ -155,7 +155,12 @@ impl Default for GoldsrcPluginParams {
             .with_value_to_string(formatters::v2s_f32_percentage(1))
             .with_string_to_value(formatters::s2v_f32_percentage()),
 
-            clip_soft: BoolParam::new("Soft Clip", false),
+            clip_soft: IntParam::new("Clip Mode", 2, IntRange::Linear { min: 0, max: 2 })
+                .with_value_to_string(Arc::new(|v| match v {
+                    0 => "Off".to_string(),
+                    1 => "Soft".to_string(),
+                    _ => "Hard".to_string(),
+                })),
 
             enable_amplp: BoolParam::new("Amp Mod LPF", false),
             enable_ampmod: BoolParam::new("Amp Mod", false),
@@ -163,7 +168,10 @@ impl Default for GoldsrcPluginParams {
                 "Reverb Size",
                 0.05,
                 FloatRange::Linear { min: 0.0, max: 1.0 },
-            ),
+            )
+            .with_unit("%")
+            .with_value_to_string(formatters::v2s_f32_percentage(1))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
             reverb_feedback: FloatParam::new(
                 "Reverb Feedback",
                 0.85,
@@ -171,13 +179,21 @@ impl Default for GoldsrcPluginParams {
                     min: 0.0,
                     max: 0.999,
                 },
-            ),
+            )
+            .with_unit("%")
+            .with_value_to_string(formatters::v2s_f32_percentage(1))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
             enable_revlp: BoolParam::new("Reverb LPF", true),
             delay_time: FloatParam::new(
                 "Echo Time",
                 0.008,
                 FloatRange::Linear { min: 0.0, max: 0.4 },
-            ),
+            )
+            .with_unit(" ms")
+            .with_value_to_string(Arc::new(|v| format!("{:.0}", v * 1000.0)))
+            .with_string_to_value(Arc::new(|s| {
+                s.trim_end_matches("ms").trim().parse::<f32>().ok().map(|v| v / 1000.0)
+            })),
             delay_feedback: FloatParam::new(
                 "Echo Feedback",
                 0.96,
@@ -185,17 +201,24 @@ impl Default for GoldsrcPluginParams {
                     min: 0.0,
                     max: 0.999,
                 },
-            ),
-            enable_dellp: FloatParam::new(
-                "Echo LPF",
-                2.0,
-                FloatRange::Linear { min: 0.0, max: 2.0 },
-            ),
+            )
+            .with_unit("%")
+            .with_value_to_string(formatters::v2s_f32_percentage(1))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
+            enable_dellp: BoolParam::new("Echo LPF", true)
+                .with_value_to_string(Arc::new(|v| {
+                    if v { "On".to_string() } else { "Off".to_string() }
+                })),
             haas_time: FloatParam::new(
                 "Haas Time",
                 0.01,
                 FloatRange::Linear { min: 0.0, max: 0.1 },
-            ),
+            )
+            .with_unit(" ms")
+            .with_value_to_string(Arc::new(|v| format!("{:.0}", v * 1000.0)))
+            .with_string_to_value(Arc::new(|s| {
+                s.trim_end_matches("ms").trim().parse::<f32>().ok().map(|v| v / 1000.0)
+            })),
 
             seed: IntParam::new("RNG Seed", 42, IntRange::Linear { min: 0, max: 100 }),
         }
@@ -268,10 +291,10 @@ impl Plugin for GoldsrcPlugin {
         let room = self.params.room.value();
         let reverb_mix = self.params.reverb_mix.value();
         let delay_mix = self.params.delay_mix.value();
-        let clip_mode = if self.params.clip_soft.value() {
-            ClipMode::Soft
-        } else {
-            ClipMode::Hard
+        let clip_mode = match self.params.clip_soft.value() {
+            0 => ClipMode::Off,
+            1 => ClipMode::Soft,
+            _ => ClipMode::Hard,
         };
 
         // ── Preset management ──────────────────────────────────────────────
