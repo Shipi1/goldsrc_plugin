@@ -45,7 +45,7 @@ pub(crate) fn create(
             .class("header");
 
             // ── Room Selection ─────────────────────────────────────────
-            section(cx, "ROOM", |cx| {
+            room_section(cx, "ROOM", |cx| {
                 param_row(cx, "Room Type", |cx| {
                     PickList::new(
                         cx,
@@ -226,6 +226,17 @@ fn section(cx: &mut Context, title: &str, content: impl FnOnce(&mut Context)) {
     .class("section");
 }
 
+
+/// Compact section used for room preset selection.
+fn room_section(cx: &mut Context, title: &str, content: impl FnOnce(&mut Context)) {
+    VStack::new(cx, |cx| {
+        Label::new(cx, title).class("section-label");
+        content(cx);
+    })
+    .class("room-section")
+    .width(Stretch(1.0))
+    .height(Auto);
+}
 /// A single row: label on the left, widget on the right.
 fn param_row(cx: &mut Context, label: &str, widget: impl FnOnce(&mut Context)) {
     HStack::new(cx, |cx| {
