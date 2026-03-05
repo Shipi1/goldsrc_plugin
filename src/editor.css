@@ -145,3 +145,95 @@ param-button:checked {
   color: #e0e0e0;
   transition: background-color 100ms;
 }
+
+/* Dropdown / picklist styling for Room preset selection */
+picklist {
+  width: 220px;
+  height: 24px;
+  border-color: #0f3460;
+  border-width: 1px;
+  border-radius: 3px;
+  background-color: #0e1a33;
+  color: #e0e0e0;
+  child-left: 8px;
+  child-right: 8px;
+}
+
+picklist:hover,
+picklist:active,
+picklist:checked {
+  background-color: #142040;
+}
+
+picklist .icon {
+  color: #e94560;
+}
+
+picklist dropdown {
+  width: 1s;
+  height: 1s;
+  background-color: #0e1a33;
+  border-width: 0px;
+  color: #e0e0e0;
+}
+
+picklist dropdown:hover,
+picklist dropdown:active,
+picklist dropdown:checked {
+  background-color: #142040;
+}
+
+picklist dropdown > hstack {
+  background-color: transparent;
+}
+
+picklist dropdown label {
+  color: #e0e0e0;
+  background-color: transparent;
+}
+
+picklist dropdown .icon {
+  color: #e94560;
+}
+
+dropdown popup {
+  background-color: #0e1a33;
+  border-color: #0f3460;
+  border-width: 1px;
+  border-radius: 3px;
+}
+
+dropdown popup label {
+  color: #e0e0e0;
+  background-color: #0e1a33;
+  child-left: 8px;
+  child-right: 8px;
+}
+
+dropdown popup label:hover,
+dropdown popup label:checked {
+  color: #ffffff;
+  background-color: #e94560;
+}
+
+/* Compact room section sizing */
+.room-section {
+  layout-type: column;
+  width: auto;
+  height: auto;
+  row-between: 1px;
+  child-left: 6px;
+  child-right: 6px;
+  child-top: 1px;
+  child-bottom: 3px;
+  background-color: #16213e;
+  border-radius: 3px;
+}
+
+.room-section .row {
+  height: 24px;
+}
+
+.room-section .row .widget {
+  width: auto;
+}
