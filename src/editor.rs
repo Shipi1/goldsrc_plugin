@@ -4,6 +4,7 @@ use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
 use std::sync::Arc;
 
+use goldsrc_dsp::{PRESETS, ROOM_NAMES};
 use crate::GoldsrcPluginParams;
 
 pub(crate) fn default_state() -> Arc<ViziaState> {
@@ -26,6 +27,11 @@ pub(crate) fn create(
         // Data model for parameter binding
         Data {
             params: params.clone(),
+            room_options: ROOM_NAMES
+                .iter()
+                .enumerate()
+                .map(|(i, name)| format!("{i} - {name}"))
+                .collect(),
         }
         .build(cx);
 
@@ -41,9 +47,81 @@ pub(crate) fn create(
             // ── Room Selection ─────────────────────────────────────────
             section(cx, "ROOM", |cx| {
                 param_row(cx, "Room Type", |cx| {
-                    ParamSlider::new(cx, Data::params, |p| &p.room)
-                        .set_style(ParamSliderStyle::FromLeft)
-                        .class("widget");
+                    PickList::new(
+                        cx,
+                        Data::room_options,
+                        Data::params.map(|p| p.room.value().max(0) as usize),
+                        true,
+                    )
+                    .on_select({
+                        let params = params.clone();
+                        move |cx, room_idx| {
+                            let room = room_idx as i32;
+                            let preset = PRESETS[room_idx.min(PRESETS.len() - 1)];
+                            cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
+                            cx.emit(ParamEvent::SetParameter(&params.room, room).upcast());
+                            cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_amplp).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.enable_amplp, preset[0] >= 0.5)
+                                    .upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.enable_amplp).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_ampmod).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.enable_ampmod, preset[1] >= 0.5)
+                                    .upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.enable_ampmod).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.reverb_size).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.reverb_size, preset[2]).upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.reverb_size).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.reverb_feedback).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.reverb_feedback, preset[3]).upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.reverb_feedback).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_revlp).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.enable_revlp, preset[4] >= 0.5)
+                                    .upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.enable_revlp).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.delay_time).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.delay_time, preset[5]).upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.delay_time).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.delay_feedback).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.delay_feedback, preset[6]).upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.delay_feedback).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_dellp).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.enable_dellp, preset[7] == 0.0)
+                                    .upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.enable_dellp).upcast());
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.haas_time).upcast());
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.haas_time, preset[8]).upcast(),
+                            );
+                            cx.emit(ParamEvent::EndSetParameter(&params.haas_time).upcast());
+                        }
+                    })
+                    .class("widget");
                 });
             });
 
@@ -132,6 +210,7 @@ pub(crate) fn create(
 #[derive(Lens, Clone)]
 struct Data {
     params: Arc<GoldsrcPluginParams>,
+    room_options: Vec<String>,
 }
 
 impl Model for Data {}
