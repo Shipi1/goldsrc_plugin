@@ -15,6 +15,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
+nih_plug_vizia = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 goldsrc_dsp = { git = "https://github.com/Shipi1/goldsrc_dsp.git", rev = "9695b98" }
 
 [profile.release]
@@ -25,3 +26,6 @@ strip = "symbols"
 inherits = "release"
 debug = true
 strip = "none"
+
+[patch."https://github.com/RustAudio/baseview.git"]
+baseview = { git = "https://github.com/Shipi1/baseview.git", branch = "fix/win-nchittest-modal-freeze" }

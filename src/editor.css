@@ -1,0 +1,147 @@
+/* GoldSrc Reverb – Dark Theme */
+
+:root {
+  background-color: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 13;
+  font-weight: light;
+}
+
+/* ── Layout containers ─────────────────────────────────────────────── */
+
+.main {
+  width: 100%;
+  height: 100%;
+  child-left: 6px;
+  child-right: 6px;
+  child-top: 4px;
+  child-bottom: 4px;
+  row-between: 2px;
+  layout-type: column;
+}
+
+.header {
+  height: auto;
+  child-left: 1s;
+  child-right: 1s;
+  child-top: 2px;
+  child-bottom: 0px;
+}
+
+.header .title {
+  font-size: 18;
+  font-weight: bold;
+  color: #e94560;
+}
+
+.header .subtitle {
+  font-size: 10;
+  color: #8888aa;
+  child-left: 1s;
+  child-right: 1s;
+}
+
+.section {
+  layout-type: column;
+  height: 1s;
+  row-between: 1px;
+  child-left: 6px;
+  child-right: 6px;
+  child-top: 1px;
+  child-bottom: 3px;
+  background-color: #16213e;
+  border-radius: 3px;
+}
+
+.section-label {
+  font-size: 10;
+  font-weight: bold;
+  color: #e94560;
+  height: auto;
+  child-bottom: 0px;
+  child-top: 2px;
+  child-left: 1px;
+}
+
+.row {
+  layout-type: row;
+  col-between: 6px;
+  height: 1s;
+}
+
+.row .label {
+  width: 100px;
+  child-top: 1s;
+  child-bottom: 1s;
+  font-size: 12;
+  color: #c0c0d0;
+}
+
+.row .widget {
+  width: 1s;
+}
+
+/* ── Param slider overrides ────────────────────────────────────────── */
+
+param-slider {
+  height: 1s;
+  border-color: #0f3460;
+  border-width: 1px;
+  background-color: #0e1a33;
+}
+
+param-slider:hover,
+param-slider:active {
+  background-color: #142040;
+}
+
+param-slider .fill {
+  background-color: #e94560;
+}
+
+param-slider .fill--modulation {
+  background-color: #e9456050;
+}
+
+/* Text input inside sliders */
+param-slider .value-entry {
+  background-color: transparent;
+  border-width: 0px;
+  child-space: 1s;
+  color: #e0e0e0;
+}
+
+param-slider .value-entry .caret {
+  background-color: #e0e0e0;
+}
+
+param-slider .value-entry .selection {
+  background-color: #e9456040;
+}
+
+/* ── Param button overrides ────────────────────────────────────────── */
+
+param-button {
+  height: 1s;
+  width: auto;
+  border-color: #0f3460;
+  border-width: 1px;
+  background-color: #0e1a3300;
+  child-top: 1s;
+  child-bottom: 1s;
+  child-left: 8px;
+  child-right: 8px;
+  color: #8888aa;
+  transition: background-color 100ms;
+}
+
+param-button:hover {
+  background-color: #0f346040;
+  transition: background-color 100ms;
+}
+
+param-button:checked {
+  background-color: #0f3460;
+  color: #e0e0e0;
+  transition: background-color 100ms;
+}

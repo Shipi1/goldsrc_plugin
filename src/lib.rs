@@ -1,6 +1,9 @@
 use goldsrc_dsp::{ClipMode, GoldSrcReverb, Preset, PRESETS, ROOM_NAMES};
 use nih_plug::prelude::*;
+use nih_plug_vizia::ViziaState;
 use std::sync::Arc;
+
+mod editor;
 
 // ─── Plugin struct ────────────────────────────────────────────────────────────
 
@@ -83,6 +86,10 @@ struct GoldsrcPluginParams {
 
     #[id = "seed"]
     pub seed: IntParam,
+
+    /// Persisted editor window state (scale factor, etc.).
+    #[persist = "editor-state"]
+    pub editor_state: Arc<ViziaState>,
 }
 
 // ─── Preset helpers ───────────────────────────────────────────────────────────
@@ -127,6 +134,8 @@ impl Default for GoldsrcPlugin {
 impl Default for GoldsrcPluginParams {
     fn default() -> Self {
         Self {
+            editor_state: editor::default_state(),
+
             room: IntParam::new(
                 "Room Type",
                 DEFAULT_ROOM as i32,
@@ -251,6 +260,10 @@ impl Plugin for GoldsrcPlugin {
 
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
+    }
+
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        editor::create(self.params.clone(), self.params.editor_state.clone())
     }
 
     fn initialize(
