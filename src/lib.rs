@@ -39,7 +39,7 @@ struct GoldsrcPlugin {
 
 #[derive(Params)]
 struct GoldsrcPluginParams {
-    /// GoldSrc room type (0 = off, 1–28 = various reverb characters).
+    /// GoldSrc room type (0-28 factory presets, 29 = Custom).
     #[id = "room"]
     pub room: IntParam,
 
@@ -114,6 +114,8 @@ fn build_preset_from_params(p: &GoldsrcPluginParams) -> Preset {
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_ROOM: usize = 5;
+pub(crate) const CUSTOM_ROOM_INDEX: usize = PRESETS.len();
+pub(crate) const CUSTOM_ROOM: i32 = CUSTOM_ROOM_INDEX as i32;
 
 impl Default for GoldsrcPlugin {
     fn default() -> Self {
@@ -140,7 +142,7 @@ impl Default for GoldsrcPluginParams {
             room: IntParam::new(
                 "Room Type",
                 DEFAULT_ROOM as i32,
-                IntRange::Linear { min: 0, max: 28 },
+                IntRange::Linear { min: 0, max: CUSTOM_ROOM },
             )
             .with_value_to_string(Arc::new(|v: i32| {
                 let idx = v.max(0) as usize;
@@ -323,27 +325,39 @@ impl Plugin for GoldsrcPlugin {
 
         if room != self.last_room {
             self.last_room = room;
-            self.current_preset = PRESETS[(room as usize).min(PRESETS.len() - 1)];
-            let knobs = build_preset_from_params(&self.params);
-            // Apply saved knob overrides immediately (handles .vstpreset loads
-            // where all params are restored before the first process() call).
-            for i in 0..9 {
-                if knobs[i] != self.current_preset[i] {
-                    self.current_preset[i] = knobs[i];
+
+            if room == CUSTOM_ROOM {
+                self.current_preset = build_preset_from_params(&self.params);
+                self.knob_snapshot = self.current_preset;
+            } else {
+                self.current_preset = PRESETS[(room as usize).min(PRESETS.len() - 1)];
+                let knobs = build_preset_from_params(&self.params);
+                // Apply saved knob overrides immediately (handles .vstpreset loads
+                // where all params are restored before the first process() call).
+                for i in 0..9 {
+                    if knobs[i] != self.current_preset[i] {
+                        self.current_preset[i] = knobs[i];
+                    }
                 }
+                self.knob_snapshot = knobs;
             }
-            self.knob_snapshot = knobs;
         } else {
             let knobs = build_preset_from_params(&self.params);
+            let mut knob_changed = false;
+
             for i in 0..9 {
                 if knobs[i] != self.knob_snapshot[i] {
-                    // This knob was moved by the user — apply it.
+                    // This knob was moved by the user - apply it.
                     self.current_preset[i] = knobs[i];
                     self.knob_snapshot[i] = knobs[i];
+                    knob_changed = true;
                 }
             }
-        }
 
+            if knob_changed && room != CUSTOM_ROOM {
+                // The editor derives and displays Custom when knobs diverge from a factory room.
+            }
+        }
         // ── Copy host input into scratch buffers ───────────────────────────
         {
             let channels = buffer.as_slice();
@@ -414,6 +428,15 @@ impl Vst3Plugin for GoldsrcPlugin {
 
 nih_export_clap!(GoldsrcPlugin);
 nih_export_vst3!(GoldsrcPlugin);
+
+
+
+
+
+
+
+
+
 
 
 

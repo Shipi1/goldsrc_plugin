@@ -4,11 +4,11 @@ use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
 use std::{fs, sync::Arc, time::SystemTime};
 
+use crate::{presets, GoldsrcPluginParams, CUSTOM_ROOM};
 use goldsrc_dsp::{PRESETS, ROOM_NAMES};
-use crate::{presets, GoldsrcPluginParams};
 
 pub(crate) fn default_state() -> Arc<ViziaState> {
-    ViziaState::new(|| (500, 580))
+    ViziaState::new(|| (500, 650))
 }
 
 pub(crate) fn create(
@@ -25,13 +25,16 @@ pub(crate) fn create(
         }
 
         // Data model for parameter binding
+        let mut room_options = ROOM_NAMES
+            .iter()
+            .enumerate()
+            .map(|(i, name)| format!("{i} - {name}"))
+            .collect::<Vec<_>>();
+        room_options.push(format!("{} - Custom", CUSTOM_ROOM));
+
         Data {
             params: params.clone(),
-            room_options: ROOM_NAMES
-                .iter()
-                .enumerate()
-                .map(|(i, name)| format!("{i} - {name}"))
-                .collect(),
+            room_options,
         }
         .build(cx);
 
@@ -50,17 +53,22 @@ pub(crate) fn create(
                     PickList::new(
                         cx,
                         Data::room_options,
-                        Data::params.map(|p| p.room.value().max(0) as usize),
+                        Data::params.map(|p| effective_room_index(p.as_ref())),
                         true,
                     )
                     .on_select({
                         let params = params.clone();
                         move |cx, room_idx| {
                             let room = room_idx as i32;
-                            let preset = PRESETS[room_idx.min(PRESETS.len() - 1)];
                             cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
                             cx.emit(ParamEvent::SetParameter(&params.room, room).upcast());
                             cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
+
+                            if room_idx >= PRESETS.len() {
+                                return;
+                            }
+
+                            let preset = PRESETS[room_idx];
 
                             cx.emit(ParamEvent::BeginSetParameter(&params.enable_amplp).upcast());
                             cx.emit(
@@ -82,9 +90,12 @@ pub(crate) fn create(
                             );
                             cx.emit(ParamEvent::EndSetParameter(&params.reverb_size).upcast());
 
-                            cx.emit(ParamEvent::BeginSetParameter(&params.reverb_feedback).upcast());
                             cx.emit(
-                                ParamEvent::SetParameter(&params.reverb_feedback, preset[3]).upcast(),
+                                ParamEvent::BeginSetParameter(&params.reverb_feedback).upcast(),
+                            );
+                            cx.emit(
+                                ParamEvent::SetParameter(&params.reverb_feedback, preset[3])
+                                    .upcast(),
                             );
                             cx.emit(ParamEvent::EndSetParameter(&params.reverb_feedback).upcast());
 
@@ -103,7 +114,8 @@ pub(crate) fn create(
 
                             cx.emit(ParamEvent::BeginSetParameter(&params.delay_feedback).upcast());
                             cx.emit(
-                                ParamEvent::SetParameter(&params.delay_feedback, preset[6]).upcast(),
+                                ParamEvent::SetParameter(&params.delay_feedback, preset[6])
+                                    .upcast(),
                             );
                             cx.emit(ParamEvent::EndSetParameter(&params.delay_feedback).upcast());
 
@@ -124,7 +136,7 @@ pub(crate) fn create(
                     .class("widget");
                 });
 
-                param_row(cx, "JSON Presets", |cx| {
+                param_row(cx, "Presets", |cx| {
                     HStack::new(cx, |cx| {
                         Button::new(
                             cx,
@@ -132,59 +144,54 @@ pub(crate) fn create(
                                 let params = params.clone();
                                 move |_| {
                                     let name = presets::default_snapshot_name();
-                                    if let Err(err) = presets::save_params_snapshot(&params, &name) {
+                                    if let Err(err) = presets::save_params_snapshot(&params, &name)
+                                    {
                                         nih_plug::debug::nih_error!(
                                             "Failed to save JSON preset '{name}': {err}"
                                         );
                                     }
                                 }
                             },
-                            |cx| {
-                                Label::new(cx, "Save JSON")
-                            },
+                            |cx| Label::new(cx, "Save"),
                         )
-                        .class("widget");
+                        .class("preset-button");
 
                         Button::new(
                             cx,
                             {
                                 let params = params.clone();
                                 move |cx| match load_latest_snapshot() {
-                                    Ok(snapshot) => apply_snapshot_to_params(cx, &params, &snapshot),
+                                    Ok(snapshot) => {
+                                        apply_snapshot_to_params(cx, &params, &snapshot)
+                                    }
                                     Err(err) => nih_plug::debug::nih_error!(
                                         "Failed to load latest JSON preset: {err}"
                                     ),
                                 }
                             },
-                            |cx| {
-                                Label::new(cx, "Load Latest")
-                            },
+                            |cx| Label::new(cx, "Load Latest"),
                         )
-                        .class("widget");
+                        .class("preset-button");
                     })
-                    .class("widget");
+                    .class("widget preset-actions");
                 });
             });
             section(cx, "MIX", |cx| {
                 param_row(cx, "Reverb Mix", |cx| {
-                    ParamSlider::new(cx, Data::params, |p| &p.reverb_mix)
-                        .class("widget");
+                    ParamSlider::new(cx, Data::params, |p| &p.reverb_mix).class("widget");
                 });
                 param_row(cx, "Echo Level", |cx| {
-                    ParamSlider::new(cx, Data::params, |p| &p.delay_mix)
-                        .class("widget");
+                    ParamSlider::new(cx, Data::params, |p| &p.delay_mix).class("widget");
                 });
             });
 
             // ── Reverb ─────────────────────────────────────────────────
             section(cx, "REVERB", |cx| {
                 param_row(cx, "Size", |cx| {
-                    ParamSlider::new(cx, Data::params, |p| &p.reverb_size)
-                        .class("widget");
+                    ParamSlider::new(cx, Data::params, |p| &p.reverb_size).class("widget");
                 });
                 param_row(cx, "Feedback", |cx| {
-                    ParamSlider::new(cx, Data::params, |p| &p.reverb_feedback)
-                        .class("widget");
+                    ParamSlider::new(cx, Data::params, |p| &p.reverb_feedback).class("widget");
                 });
                 param_row(cx, "Low-Pass", |cx| {
                     ParamButton::new(cx, Data::params, |p| &p.enable_revlp)
@@ -200,20 +207,17 @@ pub(crate) fn create(
                         .class("widget");
                 });
                 param_row(cx, "Feedback", |cx| {
-                    ParamSlider::new(cx, Data::params, |p| &p.delay_feedback)
-                        .class("widget");
+                    ParamSlider::new(cx, Data::params, |p| &p.delay_feedback).class("widget");
                 });
                 param_row(cx, "Low-Pass", |cx| {
-                    ParamButton::new(cx, Data::params, |p| &p.enable_dellp)
-                        .with_label("Echo LPF");
+                    ParamButton::new(cx, Data::params, |p| &p.enable_dellp).with_label("Echo LPF");
                 });
             });
 
             // ── Modulation ─────────────────────────────────────────────
             section(cx, "MODULATION", |cx| {
                 param_row(cx, "Amp Mod", |cx| {
-                    ParamButton::new(cx, Data::params, |p| &p.enable_ampmod)
-                        .with_label("Amp Mod");
+                    ParamButton::new(cx, Data::params, |p| &p.enable_ampmod).with_label("Amp Mod");
                 });
                 param_row(cx, "Amp LPF", |cx| {
                     ParamButton::new(cx, Data::params, |p| &p.enable_amplp)
@@ -239,9 +243,85 @@ pub(crate) fn create(
                         .class("widget");
                 });
             });
+
+            Element::new(cx).height(Pixels(5.0));
         })
         .class("main");
     })
+}
+
+fn params_knobs(params: &GoldsrcPluginParams) -> [f32; 9] {
+    [
+        if params.enable_amplp.value() {
+            1.0
+        } else {
+            0.0
+        },
+        if params.enable_ampmod.value() {
+            1.0
+        } else {
+            0.0
+        },
+        params.reverb_size.value(),
+        params.reverb_feedback.value(),
+        if params.enable_revlp.value() {
+            1.0
+        } else {
+            0.0
+        },
+        params.delay_time.value(),
+        params.delay_feedback.value(),
+        if params.enable_dellp.value() {
+            0.0
+        } else {
+            2.0
+        },
+        params.haas_time.value(),
+    ]
+}
+
+fn effective_room_index(params: &GoldsrcPluginParams) -> usize {
+    let room = params.room.value().clamp(0, CUSTOM_ROOM) as usize;
+    if room >= PRESETS.len() {
+        return CUSTOM_ROOM as usize;
+    }
+
+    if params_knobs(params) == PRESETS[room] {
+        room
+    } else {
+        CUSTOM_ROOM as usize
+    }
+}
+fn snapshot_knobs(snapshot: &presets::PluginParamsSnapshot) -> [f32; 9] {
+    [
+        if snapshot.enable_amplp { 1.0 } else { 0.0 },
+        if snapshot.enable_ampmod { 1.0 } else { 0.0 },
+        snapshot.reverb_size,
+        snapshot.reverb_feedback,
+        if snapshot.enable_revlp { 1.0 } else { 0.0 },
+        snapshot.delay_time,
+        snapshot.delay_feedback,
+        if snapshot.enable_dellp { 0.0 } else { 2.0 },
+        snapshot.haas_time,
+    ]
+}
+
+fn snapshot_target_room(snapshot: &presets::PluginParamsSnapshot) -> i32 {
+    let room = snapshot.room.clamp(0, CUSTOM_ROOM);
+    if room == CUSTOM_ROOM {
+        return CUSTOM_ROOM;
+    }
+
+    let room_index = room as usize;
+    if room_index >= PRESETS.len() {
+        return CUSTOM_ROOM;
+    }
+
+    if snapshot_knobs(snapshot) == PRESETS[room_index] {
+        room
+    } else {
+        CUSTOM_ROOM
+    }
 }
 
 fn apply_snapshot_to_params(
@@ -249,10 +329,6 @@ fn apply_snapshot_to_params(
     params: &Arc<GoldsrcPluginParams>,
     snapshot: &presets::PluginParamsSnapshot,
 ) {
-    cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
-    cx.emit(ParamEvent::SetParameter(&params.room, snapshot.room).upcast());
-    cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
-
     cx.emit(ParamEvent::BeginSetParameter(&params.reverb_mix).upcast());
     cx.emit(ParamEvent::SetParameter(&params.reverb_mix, snapshot.reverb_mix).upcast());
     cx.emit(ParamEvent::EndSetParameter(&params.reverb_mix).upcast());
@@ -278,9 +354,7 @@ fn apply_snapshot_to_params(
     cx.emit(ParamEvent::EndSetParameter(&params.reverb_size).upcast());
 
     cx.emit(ParamEvent::BeginSetParameter(&params.reverb_feedback).upcast());
-    cx.emit(
-        ParamEvent::SetParameter(&params.reverb_feedback, snapshot.reverb_feedback).upcast(),
-    );
+    cx.emit(ParamEvent::SetParameter(&params.reverb_feedback, snapshot.reverb_feedback).upcast());
     cx.emit(ParamEvent::EndSetParameter(&params.reverb_feedback).upcast());
 
     cx.emit(ParamEvent::BeginSetParameter(&params.enable_revlp).upcast());
@@ -306,8 +380,12 @@ fn apply_snapshot_to_params(
     cx.emit(ParamEvent::BeginSetParameter(&params.seed).upcast());
     cx.emit(ParamEvent::SetParameter(&params.seed, snapshot.seed).upcast());
     cx.emit(ParamEvent::EndSetParameter(&params.seed).upcast());
-}
 
+    let target_room = snapshot_target_room(snapshot);
+    cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.room, target_room).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
+}
 fn load_latest_snapshot() -> Result<presets::PluginParamsSnapshot, presets::PresetIoError> {
     let mut files = presets::list_snapshot_files()?;
     files.sort_by_key(|path| {
@@ -345,7 +423,6 @@ fn section(cx: &mut Context, title: &str, content: impl FnOnce(&mut Context)) {
     .class("section");
 }
 
-
 /// Compact section used for room preset selection.
 fn room_section(cx: &mut Context, title: &str, content: impl FnOnce(&mut Context)) {
     VStack::new(cx, |cx| {
@@ -364,9 +441,3 @@ fn param_row(cx: &mut Context, label: &str, widget: impl FnOnce(&mut Context)) {
     })
     .class("row");
 }
-
-
-
-
-
-
