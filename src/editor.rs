@@ -264,7 +264,8 @@ pub(crate) fn create(
                         },
                         |cx| Label::new(cx, "Save"),
                     )
-                    .class("preset-button widget");
+                    .class("preset-button")
+                    .class("widget");
                 });
 
                 param_row(cx, "Load User Presets", |cx| {
@@ -715,6 +716,9 @@ mod tests {
         );
     }
 }
+
+
+
 
 
 

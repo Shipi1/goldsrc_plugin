@@ -5,7 +5,6 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const PRESET_DIR_NAME: &str = "GoldSrc Presets";
 const OVERRIDE_DIR_ENV: &str = "GOLDSRC_PRESETS_DIR";
@@ -52,7 +51,6 @@ impl PluginParamsSnapshot {
 #[derive(Debug)]
 pub(crate) enum PresetIoError {
     MissingDesktop,
-    InvalidFileName,
     Io(io::Error),
     Json(serde_json::Error),
 }
@@ -63,7 +61,6 @@ impl fmt::Display for PresetIoError {
             Self::MissingDesktop => {
                 write!(f, "Could not determine Desktop path (USERPROFILE/HOME not set)")
             }
-            Self::InvalidFileName => write!(f, "Preset file name is empty or invalid"),
             Self::Io(e) => write!(f, "I/O error: {e}"),
             Self::Json(e) => write!(f, "JSON parse/serialize error: {e}"),
         }
@@ -82,14 +79,6 @@ impl From<serde_json::Error> for PresetIoError {
     fn from(value: serde_json::Error) -> Self {
         Self::Json(value)
     }
-}
-
-pub(crate) fn save_params_snapshot(
-    params: &GoldsrcPluginParams,
-    name: &str,
-) -> Result<PathBuf, PresetIoError> {
-    let snapshot = PluginParamsSnapshot::from_params(params);
-    save_snapshot(&snapshot, name)
 }
 
 
@@ -114,23 +103,6 @@ pub(crate) fn save_snapshot_to_path(
     fs::write(&path, json)?;
     println!("[presets] saved snapshot to {}", path.display());
     Ok(path)
-}
-
-pub(crate) fn save_snapshot(
-    snapshot: &PluginParamsSnapshot,
-    name: &str,
-) -> Result<PathBuf, PresetIoError> {
-    let path = snapshot_path(name)?;
-    let json = serde_json::to_string_pretty(snapshot)?;
-    fs::write(&path, json)?;
-    println!("[presets] saved snapshot '{name}' to {}", path.display());
-    Ok(path)
-}
-
-pub(crate) fn load_snapshot(name: &str) -> Result<PluginParamsSnapshot, PresetIoError> {
-    let path = snapshot_path(name)?;
-    println!("[presets] loading snapshot '{name}' from {}", path.display());
-    load_snapshot_from_path(path)
 }
 
 pub(crate) fn load_snapshot_from_path(
@@ -182,43 +154,11 @@ pub(crate) fn preset_root_dir() -> Result<PathBuf, PresetIoError> {
     Ok(path)
 }
 
-fn snapshot_path(name: &str) -> Result<PathBuf, PresetIoError> {
-    let safe_name = sanitize_name(name);
-    if safe_name.is_empty() {
-        return Err(PresetIoError::InvalidFileName);
-    }
-
-    Ok(preset_root_dir()?.join(format!("{safe_name}.json")))
-}
-
-fn sanitize_name(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-
-    for ch in name.chars() {
-        let invalid = matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*');
-        if invalid || ch.is_control() {
-            out.push('_');
-        } else {
-            out.push(ch);
-        }
-    }
-
-    out.trim().trim_matches('.').to_string()
-}
-
 fn desktop_dir() -> Option<PathBuf> {
     env::var_os("USERPROFILE")
         .map(PathBuf::from)
         .map(|p| p.join("Desktop"))
         .or_else(|| env::var_os("HOME").map(PathBuf::from).map(|p| p.join("Desktop")))
-}
-
-pub(crate) fn default_snapshot_name() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("preset-{now}")
 }
 
 #[cfg(test)]
@@ -262,12 +202,16 @@ mod tests {
         let unique = format!(
             "goldsrc-presets-test-{}-{}",
             std::process::id(),
-            default_snapshot_name()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
         );
         let test_dir = std::env::temp_dir().join(unique);
 
         let _ = fs::remove_dir_all(&test_dir);
         std::env::set_var(OVERRIDE_DIR_ENV, &test_dir);
+        fs::create_dir_all(&test_dir).expect("create test dir");
 
         let snapshot = PluginParamsSnapshot {
             room: 7,
@@ -286,11 +230,12 @@ mod tests {
             seed: 99,
         };
 
-        let saved_path = save_snapshot(&snapshot, "io_test").expect("save snapshot");
+        let preset_path = test_dir.join("io_test.json");
+        let saved_path = save_snapshot_to_path(&snapshot, &preset_path).expect("save snapshot");
         assert!(saved_path.exists(), "snapshot file should exist");
         assert_eq!(saved_path.parent(), Some(test_dir.as_path()));
 
-        let loaded = load_snapshot("io_test").expect("load snapshot");
+        let loaded = load_snapshot_from_path(&preset_path).expect("load snapshot");
         assert_eq!(loaded, snapshot);
 
         let listed = list_snapshot_files().expect("list snapshots");
