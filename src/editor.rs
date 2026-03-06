@@ -8,6 +8,7 @@ use std::{
     sync::{
         atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
+        Mutex,
     },
 };
 
@@ -69,7 +70,7 @@ pub(crate) fn create(
         room_options.push(format!("{} - Custom", CUSTOM_ROOM));
 
         let (user_preset_options, user_preset_paths) = available_user_presets();
-        let user_preset_max_index = user_preset_options.len().saturating_sub(1);
+        let user_preset_paths = Arc::new(Mutex::new(user_preset_paths));
         let selected_user_preset_idx = Arc::new(AtomicUsize::new(0));
         let window_size_options = window_size_labels();
         let window_size_max_index = window_size_options.len().saturating_sub(1);
@@ -211,45 +212,54 @@ pub(crate) fn create(
                         cx,
                         {
                             let params = params.clone();
-                            move |_| {
-                                let params = params.clone();
-                                std::thread::spawn(move || {
-                                    let default_dir = match presets::preset_root_dir() {
-                                        Ok(path) => path,
-                                        Err(err) => {
-                                            nih_plug::debug::nih_error!(
-                                                "Failed to resolve preset folder for save dialog: {err}"
-                                            );
-                                            return;
-                                        }
-                                    };
-
-                                    let maybe_file = pollster::block_on(async {
-                                        AsyncFileDialog::new()
-                                            .set_title("Save GoldSrc Preset")
-                                            .set_directory(default_dir)
-                                            .set_file_name("preset.json")
-                                            .add_filter("GoldSrc Preset", &["json"])
-                                            .save_file()
-                                            .await
-                                    });
-
-                                    if let Some(file) = maybe_file {
-                                        let mut path = file.path().to_path_buf();
-                                        if path.extension().is_none() {
-                                            path.set_extension("json");
-                                        }
-
-                                        if let Err(err) =
-                                            presets::save_params_snapshot_to_path(&params, &path)
-                                        {
-                                            nih_plug::debug::nih_error!(
-                                                "Failed to save JSON preset to {}: {err}",
-                                                path.display()
-                                            );
+                            let selected_user_preset_idx = selected_user_preset_idx.clone();
+                            let user_preset_paths = user_preset_paths.clone();
+                            move |cx| {
+                                let default_dir = match presets::preset_root_dir() {
+                                    Ok(path) => path,
+                                    Err(err) => {
+                                        nih_plug::debug::nih_error!(
+                                            "Failed to resolve preset folder for save dialog: {err}"
+                                        );
+                                        return;
+                                    }
+                                };
+                                let maybe_file = pollster::block_on(async {
+                                    AsyncFileDialog::new()
+                                        .set_title("Save GoldSrc Preset")
+                                        .set_directory(default_dir)
+                                        .set_file_name("preset.json")
+                                        .add_filter("GoldSrc Preset", &["json"])
+                                        .save_file()
+                                        .await
+                                });
+                                if let Some(file) = maybe_file {
+                                    let mut path = file.path().to_path_buf();
+                                    if path.extension().is_none() {
+                                        path.set_extension("json");
+                                    }
+                                    if let Err(err) = presets::save_params_snapshot_to_path(&params, &path) {
+                                        nih_plug::debug::nih_error!(
+                                            "Failed to save JSON preset to {}: {err}",
+                                            path.display()
+                                        );
+                                        return;
+                                    }
+                                    let saved_name = path
+                                        .file_stem()
+                                        .and_then(|s| s.to_str())
+                                        .map(|s| s.to_string());
+                                    let (labels, paths) = available_user_presets();
+                                    if let Ok(mut shared_paths) = user_preset_paths.lock() {
+                                        *shared_paths = paths;
+                                    }
+                                    if let Some(saved_name) = saved_name {
+                                        if let Some(saved_idx) = labels.iter().position(|name| name == &saved_name) {
+                                            selected_user_preset_idx.store(saved_idx, Ordering::Relaxed);
                                         }
                                     }
-                                });
+                                    cx.emit(DataEvent::SetUserPresetOptions(labels));
+                                }
                             }
                         },
                         |cx| Label::new(cx, "Save"),
@@ -263,10 +273,10 @@ pub(crate) fn create(
                         Data::user_preset_options,
                         {
                             let selected_user_preset_idx = selected_user_preset_idx.clone();
-                            Data::params.map(move |_| {
+                            Data::user_preset_options.map(move |options| {
                                 selected_user_preset_idx
                                     .load(Ordering::Relaxed)
-                                    .min(user_preset_max_index)
+                                    .min(options.len().saturating_sub(1))
                             })
                         },
                         true,
@@ -277,8 +287,12 @@ pub(crate) fn create(
                         let selected_user_preset_idx = selected_user_preset_idx.clone();
                         move |cx, preset_idx| {
                             selected_user_preset_idx.store(preset_idx, Ordering::Relaxed);
-                            if let Some(path) = user_preset_paths.get(preset_idx) {
-                                match presets::load_snapshot_from_path(path) {
+                            let path = user_preset_paths
+                                .lock()
+                                .ok()
+                                .and_then(|paths| paths.get(preset_idx).cloned());
+                            if let Some(path) = path {
+                                match presets::load_snapshot_from_path(&path) {
                                     Ok(snapshot) => apply_snapshot_to_params(cx, &params, &snapshot),
                                     Err(err) => nih_plug::debug::nih_error!(
                                         "Failed to load user preset from {}: {err}",
@@ -501,7 +515,7 @@ fn apply_snapshot_to_params(
     cx.emit(ParamEvent::SetParameter(&params.room, target_room).upcast());
     cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
 }
-fn available_user_presets() -> (Vec<String>, Arc<Vec<PathBuf>>) {
+fn available_user_presets() -> (Vec<String>, Vec<PathBuf>) {
     match presets::list_snapshot_files() {
         Ok(paths) => {
             let mut paths: Vec<PathBuf> = paths;
@@ -524,14 +538,14 @@ fn available_user_presets() -> (Vec<String>, Arc<Vec<PathBuf>>) {
                 .collect::<Vec<String>>();
 
             if labels.is_empty() {
-                (vec!["No presets found".to_string()], Arc::new(Vec::new()))
+                (vec!["No presets found".to_string()], Vec::new())
             } else {
-                (labels, Arc::new(paths))
+                (labels, paths)
             }
         }
         Err(err) => {
             nih_plug::debug::nih_error!("Failed to list user presets: {err}");
-            (vec!["No presets found".to_string()], Arc::new(Vec::new()))
+            (vec!["No presets found".to_string()], Vec::new())
         }
     }
 }
@@ -545,7 +559,18 @@ struct Data {
     window_size_options: Vec<String>,
 }
 
-impl Model for Data {}
+enum DataEvent {
+    SetUserPresetOptions(Vec<String>),
+}
+impl Model for Data {
+    fn event(&mut self, _: &mut EventContext, event: &mut Event) {
+        event.map(|app_event, _| match app_event {
+            DataEvent::SetUserPresetOptions(options) => {
+                self.user_preset_options = options.clone();
+            }
+        });
+    }
+}
 
 // ─── Layout helpers ──────────────────────────────────────────────────────────
 
@@ -576,3 +601,121 @@ fn param_row(cx: &mut Context, label: &str, widget: impl FnOnce(&mut Context)) {
     })
     .class("row");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::presets::PluginParamsSnapshot;
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /// Build a snapshot that mirrors PRESETS[room_index] exactly.
+    /// Preset layout: [lp, mod, size, refl, rvblp, delay, feedback, dlylp, left]
+    ///
+    /// Key mapping (mirrors snapshot_knobs / the on_select Room handler):
+    ///   [0] lp       → enable_amplp  (>= 0.5 → true)
+    ///   [1] mod      → enable_ampmod (>= 0.5 → true)
+    ///   [2] size     → reverb_size
+    ///   [3] refl     → reverb_feedback
+    ///   [4] rvblp    → enable_revlp  (>= 0.5 → true)
+    ///   [5] delay    → delay_time
+    ///   [6] feedback → delay_feedback
+    ///   [7] dlylp    → enable_dellp  (== 0.0 → true  — inverted!)
+    ///   [8] left     → haas_time
+    fn snapshot_from_preset(room_index: usize, room_value: i32) -> PluginParamsSnapshot {
+        let p = goldsrc_dsp::PRESETS[room_index];
+        PluginParamsSnapshot {
+            room: room_value,
+            reverb_mix: 0.17,
+            delay_mix: 0.25,
+            clip_soft: 0,
+            enable_amplp: p[0] >= 0.5,
+            enable_ampmod: p[1] >= 0.5,
+            reverb_size: p[2],
+            reverb_feedback: p[3],
+            enable_revlp: p[4] >= 0.5,
+            delay_time: p[5],
+            delay_feedback: p[6],
+            enable_dellp: p[7] == 0.0, // inverted: dlylp==0.0 means LP is active
+            haas_time: p[8],
+            seed: 0,
+        }
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+
+    /// snapshot.room == CUSTOM_ROOM must short-circuit to CUSTOM_ROOM,
+    /// even when all knob values perfectly match a real preset.
+    #[test]
+    fn explicit_custom_room_returns_custom_room() {
+        // Use room 5 (tunnel) values but mark it as Custom.
+        let mut s = snapshot_from_preset(5, 5);
+        s.room = crate::CUSTOM_ROOM;
+
+        assert_eq!(
+            snapshot_target_room(&s),
+            crate::CUSTOM_ROOM,
+            "snapshot.room == CUSTOM_ROOM must always return CUSTOM_ROOM"
+        );
+    }
+
+    /// Snapshots whose knobs exactly mirror a real preset entry must resolve
+    /// back to that room index — tested for two rooms to cover both
+    /// enable_dellp=false (dlylp=2.0) and enable_dellp=true (dlylp=0.0).
+    #[test]
+    fn exact_knob_match_resolves_to_room_index() {
+        // Room 5 — "tunnel": PRESETS[5][7] = 2.0 → enable_dellp = false
+        let s = snapshot_from_preset(5, 5);
+        assert_eq!(snapshot_target_room(&s), 5, "room 5 exact match must return 5");
+
+        // Room 23 — "cavern": PRESETS[23][7] = 0.0 → enable_dellp = true
+        let s = snapshot_from_preset(23, 23);
+        assert_eq!(
+            snapshot_target_room(&s),
+            23,
+            "room 23 exact match must return 23"
+        );
+    }
+
+    /// A snapshot whose room field is valid but whose knob values differ from
+    /// the preset table must fall back to CUSTOM_ROOM (user-modified state).
+    #[test]
+    fn mismatched_knobs_fall_through_to_custom_room() {
+        // Start from room 1 (generic), bump reverb_size — PRESETS[1][2] = 0.0
+        let mut s = snapshot_from_preset(1, 1);
+        s.reverb_size = 0.99;
+
+        assert_eq!(
+            snapshot_target_room(&s),
+            crate::CUSTOM_ROOM,
+            "modified knobs must resolve to CUSTOM_ROOM even if room field is valid"
+        );
+    }
+
+    /// Verify the enable_dellp inversion contract: snapshot_knobs must emit
+    /// the value that matches PRESETS so the array comparison succeeds.
+    #[test]
+    fn enable_dellp_inversion_round_trips_correctly() {
+        // Room 23 (cavern): PRESETS[23][7] = 0.0 → enable_dellp should be true
+        let s = snapshot_from_preset(23, 23);
+        assert!(s.enable_dellp, "PRESETS[23][7]=0.0 should map to enable_dellp=true");
+        assert_eq!(
+            snapshot_knobs(&s)[7],
+            0.0,
+            "snapshot_knobs must emit 0.0 when enable_dellp=true"
+        );
+
+        // Room 5 (tunnel): PRESETS[5][7] = 2.0 → enable_dellp should be false
+        let s = snapshot_from_preset(5, 5);
+        assert!(!s.enable_dellp, "PRESETS[5][7]=2.0 should map to enable_dellp=false");
+        assert_eq!(
+            snapshot_knobs(&s)[7],
+            2.0,
+            "snapshot_knobs must emit 2.0 when enable_dellp=false"
+        );
+    }
+}
+
+
+
+
