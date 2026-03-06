@@ -4,6 +4,7 @@ use nih_plug_vizia::ViziaState;
 use std::sync::Arc;
 
 mod editor;
+mod presets;
 
 // ─── Plugin struct ────────────────────────────────────────────────────────────
 
@@ -413,3 +414,6 @@ impl Vst3Plugin for GoldsrcPlugin {
 
 nih_export_clap!(GoldsrcPlugin);
 nih_export_vst3!(GoldsrcPlugin);
+
+
+

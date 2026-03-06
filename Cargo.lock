@@ -1541,6 +1541,8 @@ dependencies = [
  "goldsrc_dsp",
  "nih_plug",
  "nih_plug_vizia",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

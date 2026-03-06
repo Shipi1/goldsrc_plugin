@@ -2,10 +2,10 @@ use nih_plug::prelude::*;
 use nih_plug_vizia::vizia::prelude::*;
 use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
-use std::sync::Arc;
+use std::{fs, sync::Arc, time::SystemTime};
 
 use goldsrc_dsp::{PRESETS, ROOM_NAMES};
-use crate::GoldsrcPluginParams;
+use crate::{presets, GoldsrcPluginParams};
 
 pub(crate) fn default_state() -> Arc<ViziaState> {
     ViziaState::new(|| (500, 580))
@@ -123,9 +123,48 @@ pub(crate) fn create(
                     })
                     .class("widget");
                 });
-            });
 
-            // ── Mix Controls ───────────────────────────────────────────
+                param_row(cx, "JSON Presets", |cx| {
+                    HStack::new(cx, |cx| {
+                        Button::new(
+                            cx,
+                            {
+                                let params = params.clone();
+                                move |_| {
+                                    let name = presets::default_snapshot_name();
+                                    if let Err(err) = presets::save_params_snapshot(&params, &name) {
+                                        nih_plug::debug::nih_error!(
+                                            "Failed to save JSON preset '{name}': {err}"
+                                        );
+                                    }
+                                }
+                            },
+                            |cx| {
+                                Label::new(cx, "Save JSON")
+                            },
+                        )
+                        .class("widget");
+
+                        Button::new(
+                            cx,
+                            {
+                                let params = params.clone();
+                                move |cx| match load_latest_snapshot() {
+                                    Ok(snapshot) => apply_snapshot_to_params(cx, &params, &snapshot),
+                                    Err(err) => nih_plug::debug::nih_error!(
+                                        "Failed to load latest JSON preset: {err}"
+                                    ),
+                                }
+                            },
+                            |cx| {
+                                Label::new(cx, "Load Latest")
+                            },
+                        )
+                        .class("widget");
+                    })
+                    .class("widget");
+                });
+            });
             section(cx, "MIX", |cx| {
                 param_row(cx, "Reverb Mix", |cx| {
                     ParamSlider::new(cx, Data::params, |p| &p.reverb_mix)
@@ -205,6 +244,86 @@ pub(crate) fn create(
     })
 }
 
+fn apply_snapshot_to_params(
+    cx: &mut EventContext,
+    params: &Arc<GoldsrcPluginParams>,
+    snapshot: &presets::PluginParamsSnapshot,
+) {
+    cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.room, snapshot.room).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.reverb_mix).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.reverb_mix, snapshot.reverb_mix).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.reverb_mix).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.delay_mix).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.delay_mix, snapshot.delay_mix).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.delay_mix).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.clip_soft).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.clip_soft, snapshot.clip_soft).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.clip_soft).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_amplp).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_amplp, snapshot.enable_amplp).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_amplp).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_ampmod).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_ampmod, snapshot.enable_ampmod).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_ampmod).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.reverb_size).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.reverb_size, snapshot.reverb_size).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.reverb_size).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.reverb_feedback).upcast());
+    cx.emit(
+        ParamEvent::SetParameter(&params.reverb_feedback, snapshot.reverb_feedback).upcast(),
+    );
+    cx.emit(ParamEvent::EndSetParameter(&params.reverb_feedback).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_revlp).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_revlp, snapshot.enable_revlp).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_revlp).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.delay_time).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.delay_time, snapshot.delay_time).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.delay_time).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.delay_feedback).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.delay_feedback, snapshot.delay_feedback).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.delay_feedback).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_dellp).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_dellp, snapshot.enable_dellp).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_dellp).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.haas_time).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.haas_time, snapshot.haas_time).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.haas_time).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.seed).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.seed, snapshot.seed).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.seed).upcast());
+}
+
+fn load_latest_snapshot() -> Result<presets::PluginParamsSnapshot, presets::PresetIoError> {
+    let mut files = presets::list_snapshot_files()?;
+    files.sort_by_key(|path| {
+        fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    });
+
+    match files.last() {
+        Some(path) => presets::load_snapshot_from_path(path),
+        None => Err(presets::PresetIoError::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No JSON preset files found",
+        ))),
+    }
+}
 // ─── Data model ──────────────────────────────────────────────────────────────
 
 #[derive(Lens, Clone)]
@@ -245,3 +364,9 @@ fn param_row(cx: &mut Context, label: &str, widget: impl FnOnce(&mut Context)) {
     })
     .class("row");
 }
+
+
+
+
+
+
