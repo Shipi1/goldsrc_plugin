@@ -6,16 +6,43 @@ use rfd::AsyncFileDialog;
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
     },
 };
 
 use crate::{presets, GoldsrcPluginParams, CUSTOM_ROOM};
 use goldsrc_dsp::{PRESETS, ROOM_NAMES};
+const WINDOW_SIZE_PRESETS: [(&str, u32, u32); 3] = [
+    ("Compact (500x650)", 500, 650),
+    ("Default (620x760)", 620, 760),
+    ("Large (760x900)", 760, 900),
+];
+
+static WINDOW_WIDTH: AtomicU32 = AtomicU32::new(500);
+static WINDOW_HEIGHT: AtomicU32 = AtomicU32::new(650);
+
+fn window_size_labels() -> Vec<String> {
+    WINDOW_SIZE_PRESETS
+        .iter()
+        .map(|(label, _, _)| (*label).to_string())
+        .collect()
+}
+
+fn apply_window_size_preset(index: usize) {
+    let clamped = index.min(WINDOW_SIZE_PRESETS.len().saturating_sub(1));
+    let (_, width, height) = WINDOW_SIZE_PRESETS[clamped];
+    WINDOW_WIDTH.store(width, Ordering::Relaxed);
+    WINDOW_HEIGHT.store(height, Ordering::Relaxed);
+}
 
 pub(crate) fn default_state() -> Arc<ViziaState> {
-    ViziaState::new(|| (500, 650))
+    ViziaState::new(|| {
+        (
+            WINDOW_WIDTH.load(Ordering::Relaxed),
+            WINDOW_HEIGHT.load(Ordering::Relaxed),
+        )
+    })
 }
 
 pub(crate) fn create(
@@ -42,11 +69,15 @@ pub(crate) fn create(
         let (user_preset_options, user_preset_paths) = available_user_presets();
         let user_preset_max_index = user_preset_options.len().saturating_sub(1);
         let selected_user_preset_idx = Arc::new(AtomicUsize::new(0));
+        let window_size_options = window_size_labels();
+        let window_size_max_index = window_size_options.len().saturating_sub(1);
+        let selected_window_size_idx = Arc::new(AtomicUsize::new(0));
 
         Data {
             params: params.clone(),
             room_options,
             user_preset_options,
+            window_size_options,
         }
         .build(cx);
 
@@ -148,6 +179,30 @@ pub(crate) fn create(
                     .class("widget");
                 });
 
+                param_row(cx, "Window", |cx| {
+                    PickList::new(
+                        cx,
+                        Data::window_size_options,
+                        {
+                            let selected_window_size_idx = selected_window_size_idx.clone();
+                            Data::params.map(move |_| {
+                                selected_window_size_idx
+                                    .load(Ordering::Relaxed)
+                                    .min(window_size_max_index)
+                            })
+                        },
+                        true,
+                    )
+                    .on_select({
+                        let selected_window_size_idx = selected_window_size_idx.clone();
+                        move |cx, size_idx| {
+                            selected_window_size_idx.store(size_idx, Ordering::Relaxed);
+                            apply_window_size_preset(size_idx);
+                            cx.emit(GuiContextEvent::Resize);
+                        }
+                    })
+                    .class("widget");
+                });
                 param_row(cx, "Presets", |cx| {
                     Button::new(
                         cx,
@@ -199,7 +254,7 @@ pub(crate) fn create(
                     .class("preset-button widget");
                 });
 
-                param_row(cx, "User Presets", |cx| {
+                param_row(cx, "Load User Presets", |cx| {
                     PickList::new(
                         cx,
                         Data::user_preset_options,
@@ -484,6 +539,7 @@ struct Data {
     params: Arc<GoldsrcPluginParams>,
     room_options: Vec<String>,
     user_preset_options: Vec<String>,
+    window_size_options: Vec<String>,
 }
 
 impl Model for Data {}
@@ -517,24 +573,3 @@ fn param_row(cx: &mut Context, label: &str, widget: impl FnOnce(&mut Context)) {
     })
     .class("row");
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
