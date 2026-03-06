@@ -2,7 +2,14 @@ use nih_plug::prelude::*;
 use nih_plug_vizia::vizia::prelude::*;
 use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
-use std::{fs, sync::Arc, time::SystemTime};
+use rfd::AsyncFileDialog;
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use crate::{presets, GoldsrcPluginParams, CUSTOM_ROOM};
 use goldsrc_dsp::{PRESETS, ROOM_NAMES};
@@ -32,9 +39,14 @@ pub(crate) fn create(
             .collect::<Vec<_>>();
         room_options.push(format!("{} - Custom", CUSTOM_ROOM));
 
+        let (user_preset_options, user_preset_paths) = available_user_presets();
+        let user_preset_max_index = user_preset_options.len().saturating_sub(1);
+        let selected_user_preset_idx = Arc::new(AtomicUsize::new(0));
+
         Data {
             params: params.clone(),
             room_options,
+            user_preset_options,
         }
         .build(cx);
 
@@ -137,43 +149,88 @@ pub(crate) fn create(
                 });
 
                 param_row(cx, "Presets", |cx| {
-                    HStack::new(cx, |cx| {
-                        Button::new(
-                            cx,
-                            {
+                    Button::new(
+                        cx,
+                        {
+                            let params = params.clone();
+                            move |_| {
                                 let params = params.clone();
-                                move |_| {
-                                    let name = presets::default_snapshot_name();
-                                    if let Err(err) = presets::save_params_snapshot(&params, &name)
-                                    {
-                                        nih_plug::debug::nih_error!(
-                                            "Failed to save JSON preset '{name}': {err}"
-                                        );
-                                    }
-                                }
-                            },
-                            |cx| Label::new(cx, "Save"),
-                        )
-                        .class("preset-button");
+                                std::thread::spawn(move || {
+                                    let default_dir = match presets::preset_root_dir() {
+                                        Ok(path) => path,
+                                        Err(err) => {
+                                            nih_plug::debug::nih_error!(
+                                                "Failed to resolve preset folder for save dialog: {err}"
+                                            );
+                                            return;
+                                        }
+                                    };
 
-                        Button::new(
-                            cx,
-                            {
-                                let params = params.clone();
-                                move |cx| match load_latest_snapshot() {
-                                    Ok(snapshot) => {
-                                        apply_snapshot_to_params(cx, &params, &snapshot)
+                                    let maybe_file = pollster::block_on(async {
+                                        AsyncFileDialog::new()
+                                            .set_title("Save GoldSrc Preset")
+                                            .set_directory(default_dir)
+                                            .set_file_name("preset.json")
+                                            .add_filter("GoldSrc Preset", &["json"])
+                                            .save_file()
+                                            .await
+                                    });
+
+                                    if let Some(file) = maybe_file {
+                                        let mut path = file.path().to_path_buf();
+                                        if path.extension().is_none() {
+                                            path.set_extension("json");
+                                        }
+
+                                        if let Err(err) =
+                                            presets::save_params_snapshot_to_path(&params, &path)
+                                        {
+                                            nih_plug::debug::nih_error!(
+                                                "Failed to save JSON preset to {}: {err}",
+                                                path.display()
+                                            );
+                                        }
                                     }
+                                });
+                            }
+                        },
+                        |cx| Label::new(cx, "Save"),
+                    )
+                    .class("preset-button widget");
+                });
+
+                param_row(cx, "User Presets", |cx| {
+                    PickList::new(
+                        cx,
+                        Data::user_preset_options,
+                        {
+                            let selected_user_preset_idx = selected_user_preset_idx.clone();
+                            Data::params.map(move |_| {
+                                selected_user_preset_idx
+                                    .load(Ordering::Relaxed)
+                                    .min(user_preset_max_index)
+                            })
+                        },
+                        true,
+                    )
+                    .on_select({
+                        let params = params.clone();
+                        let user_preset_paths = user_preset_paths.clone();
+                        let selected_user_preset_idx = selected_user_preset_idx.clone();
+                        move |cx, preset_idx| {
+                            selected_user_preset_idx.store(preset_idx, Ordering::Relaxed);
+                            if let Some(path) = user_preset_paths.get(preset_idx) {
+                                match presets::load_snapshot_from_path(path) {
+                                    Ok(snapshot) => apply_snapshot_to_params(cx, &params, &snapshot),
                                     Err(err) => nih_plug::debug::nih_error!(
-                                        "Failed to load latest JSON preset: {err}"
+                                        "Failed to load user preset from {}: {err}",
+                                        path.display()
                                     ),
                                 }
-                            },
-                            |cx| Label::new(cx, "Load Latest"),
-                        )
-                        .class("preset-button");
+                            }
+                        }
                     })
-                    .class("widget preset-actions");
+                    .class("widget");
                 });
             });
             section(cx, "MIX", |cx| {
@@ -386,20 +443,38 @@ fn apply_snapshot_to_params(
     cx.emit(ParamEvent::SetParameter(&params.room, target_room).upcast());
     cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
 }
-fn load_latest_snapshot() -> Result<presets::PluginParamsSnapshot, presets::PresetIoError> {
-    let mut files = presets::list_snapshot_files()?;
-    files.sort_by_key(|path| {
-        fs::metadata(path)
-            .and_then(|meta| meta.modified())
-            .unwrap_or(SystemTime::UNIX_EPOCH)
-    });
+fn available_user_presets() -> (Vec<String>, Arc<Vec<PathBuf>>) {
+    match presets::list_snapshot_files() {
+        Ok(paths) => {
+            let mut paths: Vec<PathBuf> = paths;
+            paths.sort_by_key(|path: &PathBuf| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_ascii_lowercase())
+                    .unwrap_or_default()
+            });
 
-    match files.last() {
-        Some(path) => presets::load_snapshot_from_path(path),
-        None => Err(presets::PresetIoError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "No JSON preset files found",
-        ))),
+            let labels = paths
+                .iter()
+                .map(|path: &PathBuf| {
+                    path.file_stem()
+                        .or_else(|| path.file_name())
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("Unnamed preset")
+                        .to_string()
+                })
+                .collect::<Vec<String>>();
+
+            if labels.is_empty() {
+                (vec!["No presets found".to_string()], Arc::new(Vec::new()))
+            } else {
+                (labels, Arc::new(paths))
+            }
+        }
+        Err(err) => {
+            nih_plug::debug::nih_error!("Failed to list user presets: {err}");
+            (vec!["No presets found".to_string()], Arc::new(Vec::new()))
+        }
     }
 }
 // ─── Data model ──────────────────────────────────────────────────────────────
@@ -408,6 +483,7 @@ fn load_latest_snapshot() -> Result<presets::PluginParamsSnapshot, presets::Pres
 struct Data {
     params: Arc<GoldsrcPluginParams>,
     room_options: Vec<String>,
+    user_preset_options: Vec<String>,
 }
 
 impl Model for Data {}
@@ -441,3 +517,24 @@ fn param_row(cx: &mut Context, label: &str, widget: impl FnOnce(&mut Context)) {
     })
     .class("row");
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

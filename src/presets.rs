@@ -92,6 +92,30 @@ pub(crate) fn save_params_snapshot(
     save_snapshot(&snapshot, name)
 }
 
+
+pub(crate) fn save_params_snapshot_to_path(
+    params: &GoldsrcPluginParams,
+    path: impl AsRef<Path>,
+) -> Result<PathBuf, PresetIoError> {
+    let snapshot = PluginParamsSnapshot::from_params(params);
+    save_snapshot_to_path(&snapshot, path)
+}
+
+pub(crate) fn save_snapshot_to_path(
+    snapshot: &PluginParamsSnapshot,
+    path: impl AsRef<Path>,
+) -> Result<PathBuf, PresetIoError> {
+    let path = path.as_ref().to_path_buf();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let json = serde_json::to_string_pretty(snapshot)?;
+    fs::write(&path, json)?;
+    println!("[presets] saved snapshot to {}", path.display());
+    Ok(path)
+}
+
 pub(crate) fn save_snapshot(
     snapshot: &PluginParamsSnapshot,
     name: &str,
@@ -276,6 +300,9 @@ mod tests {
         let _ = fs::remove_dir_all(&test_dir);
     }
 }
+
+
+
 
 
 
