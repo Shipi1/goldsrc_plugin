@@ -280,3 +280,16 @@ dropdown popup label:checked {
 .main .section:last-child {
     child-bottom: 30px;
 }
+
+.header .version {
+    font-size: 12;
+    color: #e0e0e080;
+    child-left: 1s;
+    child-right: 1s;
+}
+
+.header .version {
+    position-type: self-directed;
+    top: 2px;
+    right: 4px;
+}

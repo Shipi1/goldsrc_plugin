@@ -13,6 +13,8 @@ use std::{
 
 use crate::{presets, GoldsrcPluginParams, CUSTOM_ROOM};
 use goldsrc_dsp::{PRESETS, ROOM_NAMES};
+
+const VERSION_LABEL: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 const WINDOW_SIZE_PRESETS: [(&str, u32, u32); 3] = [
     ("Compact (500x650)", 500, 650),
     ("Default (620x760)", 620, 760),
@@ -87,6 +89,7 @@ pub(crate) fn create(
             VStack::new(cx, |cx| {
                 Label::new(cx, "GoldSrc Reverb").class("title");
                 Label::new(cx, "Half-Life engine reverb emulation").class("subtitle");
+                Label::new(cx, VERSION_LABEL).class("version");
             })
             .class("header");
 
