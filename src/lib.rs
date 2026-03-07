@@ -1,7 +1,10 @@
 use goldsrc_dsp::{ClipMode, GoldSrcReverb, Preset, PRESETS, ROOM_NAMES};
 use nih_plug::prelude::*;
 use nih_plug_vizia::ViziaState;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering},
+    Arc,
+};
 
 mod editor;
 mod presets;
@@ -10,11 +13,12 @@ mod presets;
 
 struct GoldsrcPlugin {
     params: Arc<GoldsrcPluginParams>,
+    user_preset_state: Arc<SharedUserPresetState>,
 
-    /// DSP engine — created in `initialize()` once the sample rate is known.
+    /// DSP engine â€” created in initialize() once the sample rate is known.
     reverb: Option<GoldSrcReverb>,
 
-    /// Pre-allocated scratch buffers so `process()` is allocation-free.
+    /// Pre-allocated scratch buffers so process() is allocation-free.
     scratch_l: Vec<f32>,
     scratch_r: Vec<f32>,
     out_l: Vec<f32>,
@@ -33,6 +37,110 @@ struct GoldsrcPlugin {
 
     /// Tracks the last seed value to detect seed changes.
     last_seed: i64,
+}
+
+pub(crate) struct SharedUserPresetState {
+    has_snapshot: AtomicBool,
+    matches_current: AtomicBool,
+    room: AtomicI32,
+    reverb_mix: AtomicU32,
+    delay_mix: AtomicU32,
+    clip_soft: AtomicI32,
+    enable_amplp: AtomicBool,
+    enable_ampmod: AtomicBool,
+    reverb_size: AtomicU32,
+    reverb_feedback: AtomicU32,
+    enable_revlp: AtomicBool,
+    delay_time: AtomicU32,
+    delay_feedback: AtomicU32,
+    enable_dellp: AtomicBool,
+    haas_time: AtomicU32,
+    seed: AtomicI32,
+}
+
+impl SharedUserPresetState {
+    fn new() -> Self {
+        Self {
+            has_snapshot: AtomicBool::new(false),
+            matches_current: AtomicBool::new(true),
+            room: AtomicI32::new(0),
+            reverb_mix: AtomicU32::new(0),
+            delay_mix: AtomicU32::new(0),
+            clip_soft: AtomicI32::new(0),
+            enable_amplp: AtomicBool::new(false),
+            enable_ampmod: AtomicBool::new(false),
+            reverb_size: AtomicU32::new(0),
+            reverb_feedback: AtomicU32::new(0),
+            enable_revlp: AtomicBool::new(false),
+            delay_time: AtomicU32::new(0),
+            delay_feedback: AtomicU32::new(0),
+            enable_dellp: AtomicBool::new(false),
+            haas_time: AtomicU32::new(0),
+            seed: AtomicI32::new(0),
+        }
+    }
+
+    pub(crate) fn set_snapshot(&self, snapshot: &presets::PluginParamsSnapshot) {
+        self.room.store(snapshot.room, Ordering::Relaxed);
+        self.reverb_mix
+            .store(snapshot.reverb_mix.to_bits(), Ordering::Relaxed);
+        self.delay_mix
+            .store(snapshot.delay_mix.to_bits(), Ordering::Relaxed);
+        self.clip_soft.store(snapshot.clip_soft, Ordering::Relaxed);
+        self.enable_amplp
+            .store(snapshot.enable_amplp, Ordering::Relaxed);
+        self.enable_ampmod
+            .store(snapshot.enable_ampmod, Ordering::Relaxed);
+        self.reverb_size
+            .store(snapshot.reverb_size.to_bits(), Ordering::Relaxed);
+        self.reverb_feedback
+            .store(snapshot.reverb_feedback.to_bits(), Ordering::Relaxed);
+        self.enable_revlp
+            .store(snapshot.enable_revlp, Ordering::Relaxed);
+        self.delay_time
+            .store(snapshot.delay_time.to_bits(), Ordering::Relaxed);
+        self.delay_feedback
+            .store(snapshot.delay_feedback.to_bits(), Ordering::Relaxed);
+        self.enable_dellp
+            .store(snapshot.enable_dellp, Ordering::Relaxed);
+        self.haas_time
+            .store(snapshot.haas_time.to_bits(), Ordering::Relaxed);
+        self.seed.store(snapshot.seed, Ordering::Relaxed);
+        self.has_snapshot.store(true, Ordering::Relaxed);
+        self.matches_current.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn matches_params(&self, params: &GoldsrcPluginParams) -> bool {
+        if !self.has_snapshot.load(Ordering::Relaxed) {
+            return true;
+        }
+
+        self.room.load(Ordering::Relaxed) == params.room.value()
+            && self.reverb_mix.load(Ordering::Relaxed) == params.reverb_mix.value().to_bits()
+            && self.delay_mix.load(Ordering::Relaxed) == params.delay_mix.value().to_bits()
+            && self.clip_soft.load(Ordering::Relaxed) == params.clip_soft.value()
+            && self.enable_amplp.load(Ordering::Relaxed) == params.enable_amplp.value()
+            && self.enable_ampmod.load(Ordering::Relaxed) == params.enable_ampmod.value()
+            && self.reverb_size.load(Ordering::Relaxed) == params.reverb_size.value().to_bits()
+            && self.reverb_feedback.load(Ordering::Relaxed)
+                == params.reverb_feedback.value().to_bits()
+            && self.enable_revlp.load(Ordering::Relaxed) == params.enable_revlp.value()
+            && self.delay_time.load(Ordering::Relaxed) == params.delay_time.value().to_bits()
+            && self.delay_feedback.load(Ordering::Relaxed)
+                == params.delay_feedback.value().to_bits()
+            && self.enable_dellp.load(Ordering::Relaxed) == params.enable_dellp.value()
+            && self.haas_time.load(Ordering::Relaxed) == params.haas_time.value().to_bits()
+            && self.seed.load(Ordering::Relaxed) == params.seed.value()
+    }
+
+    pub(crate) fn update_match_flag(&self, params: &GoldsrcPluginParams) {
+        self.matches_current
+            .store(self.matches_params(params), Ordering::Relaxed);
+    }
+
+    pub(crate) fn matches_current(&self) -> bool {
+        self.matches_current.load(Ordering::Relaxed)
+    }
 }
 
 // ─── Parameters ──────────────────────────────────────────────────────────────
@@ -88,6 +196,9 @@ struct GoldsrcPluginParams {
     #[id = "seed"]
     pub seed: IntParam,
 
+    #[id = "user_preset_idx"]
+    pub user_preset_idx: IntParam,
+
     /// Persisted editor window state (scale factor, etc.).
     #[persist = "editor-state"]
     pub editor_state: Arc<ViziaState>,
@@ -121,6 +232,7 @@ impl Default for GoldsrcPlugin {
     fn default() -> Self {
         Self {
             params: Arc::new(GoldsrcPluginParams::default()),
+            user_preset_state: Arc::new(SharedUserPresetState::new()),
             reverb: None,
             scratch_l: Vec::new(),
             scratch_r: Vec::new(),
@@ -233,6 +345,13 @@ impl Default for GoldsrcPluginParams {
             })),
 
             seed: IntParam::new("RNG Seed", 42, IntRange::Linear { min: 0, max: 100 }),
+
+            user_preset_idx: IntParam::new(
+                "User Preset Index",
+                0,
+                IntRange::Linear { min: 0, max: 8192 },
+            )
+            .hide(),
         }
     }
 }
@@ -266,7 +385,11 @@ impl Plugin for GoldsrcPlugin {
     }
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        editor::create(self.params.clone(), self.params.editor_state.clone())
+        editor::create(
+            self.params.clone(),
+            self.params.editor_state.clone(),
+            self.user_preset_state.clone(),
+        )
     }
 
     fn initialize(
@@ -312,6 +435,7 @@ impl Plugin for GoldsrcPlugin {
             1 => ClipMode::Soft,
             _ => ClipMode::Hard,
         };
+        self.user_preset_state.update_match_flag(&self.params);
 
         // ── Preset management ──────────────────────────────────────────────
         //
@@ -428,6 +552,11 @@ impl Vst3Plugin for GoldsrcPlugin {
 
 nih_export_clap!(GoldsrcPlugin);
 nih_export_vst3!(GoldsrcPlugin);
+
+
+
+
+
 
 
 

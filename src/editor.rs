@@ -12,7 +12,7 @@ use std::{
     },
 };
 
-use crate::{presets, GoldsrcPluginParams, CUSTOM_ROOM};
+use crate::{presets, GoldsrcPluginParams, SharedUserPresetState, CUSTOM_ROOM};
 use goldsrc_dsp::{PRESETS, ROOM_NAMES};
 
 const VERSION_LABEL: &str = concat!("v", env!("CARGO_PKG_VERSION"));
@@ -51,6 +51,7 @@ pub(crate) fn default_state() -> Arc<ViziaState> {
 pub(crate) fn create(
     params: Arc<GoldsrcPluginParams>,
     editor_state: Arc<ViziaState>,
+    user_preset_state: Arc<SharedUserPresetState>,
 ) -> Option<Box<dyn Editor>> {
     create_vizia_editor(editor_state, ViziaTheming::Custom, move |cx, _| {
         assets::register_noto_sans_light(cx);
@@ -70,8 +71,16 @@ pub(crate) fn create(
         room_options.push(format!("{} - Custom", CUSTOM_ROOM));
 
         let (user_preset_options, user_preset_paths) = available_user_presets();
+        let user_preset_labels = Arc::new(Mutex::new(user_preset_options.clone()));
         let user_preset_paths = Arc::new(Mutex::new(user_preset_paths));
-        let selected_user_preset_idx = Arc::new(AtomicUsize::new(0));
+        let user_preset_max_index = user_preset_options.len().saturating_sub(1);
+        let selected_user_preset_idx =
+            Arc::new(AtomicUsize::new(params.user_preset_idx.value().max(0) as usize));
+        sync_user_preset_state_from_selection(
+            &user_preset_state,
+            &user_preset_paths,
+            selected_user_preset_idx.load(Ordering::Relaxed),
+        );
         let window_size_options = window_size_labels();
         let window_size_max_index = window_size_options.len().saturating_sub(1);
         let selected_window_size_idx = Arc::new(AtomicUsize::new(0));
@@ -207,13 +216,17 @@ pub(crate) fn create(
                     })
                     .class("widget");
                 });
+                let selected_user_preset_idx_for_save = selected_user_preset_idx.clone();
+                let user_preset_labels_for_save = user_preset_labels.clone();
+                let user_preset_paths_for_save = user_preset_paths.clone();
                 param_row(cx, "Presets", |cx| {
                     Button::new(
                         cx,
                         {
                             let params = params.clone();
-                            let selected_user_preset_idx = selected_user_preset_idx.clone();
-                            let user_preset_paths = user_preset_paths.clone();
+                            let selected_user_preset_idx = selected_user_preset_idx_for_save.clone();
+                            let user_preset_paths = user_preset_paths_for_save.clone();
+                            let user_preset_state = user_preset_state.clone();
                             move |cx| {
                                 let default_dir = match presets::preset_root_dir() {
                                     Ok(path) => path,
@@ -250,12 +263,23 @@ pub(crate) fn create(
                                         .and_then(|s| s.to_str())
                                         .map(|s| s.to_string());
                                     let (labels, paths) = available_user_presets();
+
+                                    if let Ok(mut shared_labels) = user_preset_labels.lock() {
+                                        *shared_labels = labels.clone();
+                                    }
                                     if let Ok(mut shared_paths) = user_preset_paths.lock() {
                                         *shared_paths = paths;
                                     }
                                     if let Some(saved_name) = saved_name {
                                         if let Some(saved_idx) = labels.iter().position(|name| name == &saved_name) {
                                             selected_user_preset_idx.store(saved_idx, Ordering::Relaxed);
+                                            cx.emit(ParamEvent::BeginSetParameter(&params.user_preset_idx).upcast());
+                                            cx.emit(ParamEvent::SetParameter(&params.user_preset_idx, saved_idx as i32).upcast());
+                                            cx.emit(ParamEvent::EndSetParameter(&params.user_preset_idx).upcast());
+                                            if let Ok(saved_snapshot) = presets::load_snapshot_from_path(&path) {
+                                                let comparison_snapshot = snapshot_for_loaded_params(&saved_snapshot);
+                                                user_preset_state.set_snapshot(&comparison_snapshot);
+                                            }
                                         }
                                     }
                                     cx.emit(DataEvent::SetUserPresetOptions(labels));
@@ -271,30 +295,60 @@ pub(crate) fn create(
                 param_row(cx, "Load User Presets", |cx| {
                     PickList::new(
                         cx,
-                        Data::user_preset_options,
                         {
-                            let selected_user_preset_idx = selected_user_preset_idx.clone();
-                            Data::user_preset_options.map(move |options| {
-                                selected_user_preset_idx
-                                    .load(Ordering::Relaxed)
-                                    .min(options.len().saturating_sub(1))
+                            let user_preset_labels = user_preset_labels_for_save.clone();
+                            let user_preset_state = user_preset_state.clone();
+                            Data::params.map(move |p| {
+                                let mut labels = user_preset_labels
+                                    .lock()
+                                    .map(|shared| shared.clone())
+                                    .unwrap_or_else(|_| vec!["No presets found".to_string()]);
+
+                                if labels.is_empty() {
+                                    return vec!["No presets found".to_string()];
+                                }
+
+                                let selected_idx =
+                                    (p.user_preset_idx.value().max(0) as usize).min(labels.len() - 1);
+
+                                if !user_preset_state.matches_current() {
+                                    if let Some(label) = labels.get_mut(selected_idx) {
+                                        if !label.ends_with(" *") {
+                                            label.push_str(" *");
+                                        }
+                                    }
+                                }
+
+                                labels
                             })
                         },
+                        Data::params.map(move |p| {
+                            (p.user_preset_idx.value().max(0) as usize).min(user_preset_max_index)
+                        }),
                         true,
                     )
                     .on_select({
                         let params = params.clone();
                         let user_preset_paths = user_preset_paths.clone();
                         let selected_user_preset_idx = selected_user_preset_idx.clone();
+                        let user_preset_state = user_preset_state.clone();
                         move |cx, preset_idx| {
                             selected_user_preset_idx.store(preset_idx, Ordering::Relaxed);
+
+                            cx.emit(ParamEvent::BeginSetParameter(&params.user_preset_idx).upcast());
+                            cx.emit(ParamEvent::SetParameter(&params.user_preset_idx, preset_idx as i32).upcast());
+                            cx.emit(ParamEvent::EndSetParameter(&params.user_preset_idx).upcast());
                             let path = user_preset_paths
                                 .lock()
                                 .ok()
                                 .and_then(|paths| paths.get(preset_idx).cloned());
                             if let Some(path) = path {
                                 match presets::load_snapshot_from_path(&path) {
-                                    Ok(snapshot) => apply_snapshot_to_params(cx, &params, &snapshot),
+                                    Ok(snapshot) => {
+                                        let comparison_snapshot = snapshot_for_loaded_params(&snapshot);
+                                        user_preset_state.set_snapshot(&comparison_snapshot);
+                                        apply_snapshot_to_params(cx, &params, &snapshot)
+                                    }
                                     Err(err) => nih_plug::debug::nih_error!(
                                         "Failed to load user preset from {}: {err}",
                                         path.display()
@@ -454,6 +508,13 @@ fn snapshot_target_room(snapshot: &presets::PluginParamsSnapshot) -> i32 {
     }
 }
 
+fn snapshot_for_loaded_params(
+    snapshot: &presets::PluginParamsSnapshot,
+) -> presets::PluginParamsSnapshot {
+    let mut normalized = snapshot.clone();
+    normalized.room = snapshot_target_room(snapshot);
+    normalized
+}
 fn apply_snapshot_to_params(
     cx: &mut EventContext,
     params: &Arc<GoldsrcPluginParams>,
@@ -552,6 +613,23 @@ fn available_user_presets() -> (Vec<String>, Vec<PathBuf>) {
 }
 // ─── Data model ──────────────────────────────────────────────────────────────
 
+fn sync_user_preset_state_from_selection(
+    user_preset_state: &Arc<SharedUserPresetState>,
+    user_preset_paths: &Arc<Mutex<Vec<PathBuf>>>,
+    preset_idx: usize,
+) {
+    let path = user_preset_paths
+        .lock()
+        .ok()
+        .and_then(|paths| paths.get(preset_idx).cloned());
+
+    if let Some(path) = path {
+        if let Ok(snapshot) = presets::load_snapshot_from_path(&path) {
+            let comparison_snapshot = snapshot_for_loaded_params(&snapshot);
+            user_preset_state.set_snapshot(&comparison_snapshot);
+        }
+    }
+}
 #[derive(Lens, Clone)]
 struct Data {
     params: Arc<GoldsrcPluginParams>,
@@ -716,6 +794,23 @@ mod tests {
         );
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
