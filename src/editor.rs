@@ -63,20 +63,11 @@ pub(crate) fn create(
         }
 
         // Data model for parameter binding
-        let mut room_options = ROOM_NAMES
-            .iter()
-            .enumerate()
-            .map(|(i, name)| format!("{i} - {name}"))
-            .collect::<Vec<_>>();
-        room_options.push(format!("{} - Custom", CUSTOM_ROOM));
-
         let (user_preset_options, user_preset_paths) = available_user_presets();
         let user_preset_labels = Arc::new(Mutex::new(user_preset_options.clone()));
         let user_preset_paths = Arc::new(Mutex::new(user_preset_paths));
-        let user_preset_max_index = user_preset_options.len().saturating_sub(1);
         let selected_user_preset_idx =
-            Arc::new(AtomicUsize::new(params.user_preset_idx.value().max(0) as usize));
-        sync_user_preset_state_from_selection(
+            Arc::new(AtomicUsize::new(params.user_preset_idx.value().max(0) as usize));        sync_user_preset_state_from_selection(
             &user_preset_state,
             &user_preset_paths,
             selected_user_preset_idx.load(Ordering::Relaxed),
@@ -87,7 +78,6 @@ pub(crate) fn create(
 
         Data {
             params: params.clone(),
-            room_options,
             user_preset_options,
             window_size_options,
         }
@@ -104,120 +94,151 @@ pub(crate) fn create(
             .class("header");
 
             // ── Room Selection ─────────────────────────────────────────
+            let user_preset_labels_for_save = user_preset_labels.clone();
+            let user_preset_paths_for_save = user_preset_paths.clone();
             room_section(cx, "ROOM", |cx| {
-                param_row(cx, "Room Type", |cx| {
+                param_row(cx, "Preset", |cx| {
                     PickList::new(
                         cx,
-                        Data::room_options,
-                        Data::params.map(|p| effective_room_index(p.as_ref())),
-                        true,
-                    )
-                    .on_select({
-                        let params = params.clone();
-                        move |cx, room_idx| {
-                            let room = room_idx as i32;
-                            cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
-                            cx.emit(ParamEvent::SetParameter(&params.room, room).upcast());
-                            cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
-
-                            if room_idx >= PRESETS.len() {
-                                return;
-                            }
-
-                            let preset = PRESETS[room_idx];
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_amplp).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.enable_amplp, preset[0] >= 0.5)
-                                    .upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.enable_amplp).upcast());
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_ampmod).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.enable_ampmod, preset[1] >= 0.5)
-                                    .upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.enable_ampmod).upcast());
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.reverb_size).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.reverb_size, preset[2]).upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.reverb_size).upcast());
-
-                            cx.emit(
-                                ParamEvent::BeginSetParameter(&params.reverb_feedback).upcast(),
-                            );
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.reverb_feedback, preset[3])
-                                    .upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.reverb_feedback).upcast());
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_revlp).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.enable_revlp, preset[4] >= 0.5)
-                                    .upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.enable_revlp).upcast());
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.delay_time).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.delay_time, preset[5]).upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.delay_time).upcast());
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.delay_feedback).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.delay_feedback, preset[6])
-                                    .upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.delay_feedback).upcast());
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.enable_dellp).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.enable_dellp, preset[7] == 0.0)
-                                    .upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.enable_dellp).upcast());
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.haas_time).upcast());
-                            cx.emit(
-                                ParamEvent::SetParameter(&params.haas_time, preset[8]).upcast(),
-                            );
-                            cx.emit(ParamEvent::EndSetParameter(&params.haas_time).upcast());
-                        }
-                    })
-                    .class("widget");
-                });
-
-                param_row(cx, "Window", |cx| {
-                    PickList::new(
-                        cx,
-                        Data::window_size_options,
                         {
-                            let selected_window_size_idx = selected_window_size_idx.clone();
-                            Data::params.map(move |_| {
-                                selected_window_size_idx
-                                    .load(Ordering::Relaxed)
-                                    .min(window_size_max_index)
+                            let user_preset_labels = user_preset_labels_for_save.clone();
+                            let user_preset_paths = user_preset_paths_for_save.clone();
+                            let user_preset_state = user_preset_state.clone();
+                            Data::params.map(move |p| {
+                                let user_labels = user_preset_labels
+                                    .lock()
+                                    .map(|shared| shared.clone())
+                                    .unwrap_or_default();
+                                let user_count = user_preset_paths.lock().map(|paths| paths.len()).unwrap_or(0);
+
+                                let mut labels = if user_count == 0 {
+                                    vec!["User / No presets found".to_string()]
+                                } else {
+                                    user_labels
+                                        .into_iter()
+                                        .take(user_count)
+                                        .map(|label| format!("User / {label}"))
+                                        .collect::<Vec<_>>()
+                                };
+
+                                labels.extend(
+                                    ROOM_NAMES
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, name)| format!("Factory / {i} - {name}")),
+                                );
+
+                                if p.preset_source_idx.value().clamp(0, 1) == 1 {
+                                    let user_display_count = if user_count == 0 { 1 } else { user_count };
+                                    let selected_idx = user_display_count
+                                        + p.room.value().clamp(0, (PRESETS.len() - 1) as i32) as usize;
+
+                                    if effective_room_index(p.as_ref()) == CUSTOM_ROOM as usize {
+                                        if let Some(label) = labels.get_mut(selected_idx) {
+                                            if !label.ends_with(" *") {
+                                                label.push_str(" *");
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    let selected_idx = if user_count == 0 {
+                                        0
+                                    } else {
+                                        (p.user_preset_idx.value().max(0) as usize).min(user_count - 1)
+                                    };
+
+                                    if !user_preset_state.matches_current() {
+                                        if let Some(label) = labels.get_mut(selected_idx) {
+                                            if !label.ends_with(" *") {
+                                                label.push_str(" *");
+                                            }
+                                        }
+                                    }
+                                }
+
+                                labels
+                            })
+                        },
+                        {
+                            let user_preset_paths = user_preset_paths_for_save.clone();
+                            Data::params.map(move |p| {
+                                let user_count = user_preset_paths.lock().map(|paths| paths.len()).unwrap_or(0);
+                                let user_display_count = if user_count == 0 { 1 } else { user_count };
+                                let combined_count = user_display_count + PRESETS.len();
+                                let stored_idx = p.preset_display_idx.value().max(0) as usize;
+
+                                if stored_idx < combined_count {
+                                    stored_idx
+                                } else if p.preset_source_idx.value().clamp(0, 1) == 1 {
+                                    user_display_count
+                                        + p.room.value().clamp(0, (PRESETS.len() - 1) as i32) as usize
+                                } else if user_count == 0 {
+                                    0
+                                } else {
+                                    (p.user_preset_idx.value().max(0) as usize).min(user_count - 1)
+                                }
                             })
                         },
                         true,
                     )
                     .on_select({
-                        let selected_window_size_idx = selected_window_size_idx.clone();
-                        move |cx, size_idx| {
-                            selected_window_size_idx.store(size_idx, Ordering::Relaxed);
-                            apply_window_size_preset(size_idx);
-                            cx.emit(GuiContextEvent::Resize);
+                        let params = params.clone();
+                        let user_preset_paths = user_preset_paths.clone();
+                        let selected_user_preset_idx = selected_user_preset_idx.clone();
+                        let user_preset_state = user_preset_state.clone();
+                        move |cx, preset_idx| {
+                            let user_count = user_preset_paths.lock().map(|paths| paths.len()).unwrap_or(0);
+                            let user_display_count = if user_count == 0 { 1 } else { user_count };
+
+                            if preset_idx >= user_display_count {
+                                let factory_idx = preset_idx - user_display_count;
+                                cx.emit(ParamEvent::BeginSetParameter(&params.preset_source_idx).upcast());
+                                cx.emit(ParamEvent::SetParameter(&params.preset_source_idx, 1).upcast());
+                                cx.emit(ParamEvent::EndSetParameter(&params.preset_source_idx).upcast());
+                                cx.emit(ParamEvent::BeginSetParameter(&params.preset_display_idx).upcast());
+                                cx.emit(ParamEvent::SetParameter(&params.preset_display_idx, preset_idx as i32).upcast());
+                                cx.emit(ParamEvent::EndSetParameter(&params.preset_display_idx).upcast());
+                                apply_factory_preset(cx, &params, factory_idx);
+                                return;
+                            }
+
+                            if user_count == 0 {
+                                return;
+                            }
+
+                            selected_user_preset_idx.store(preset_idx, Ordering::Relaxed);
+                            cx.emit(ParamEvent::BeginSetParameter(&params.preset_source_idx).upcast());
+                            cx.emit(ParamEvent::SetParameter(&params.preset_source_idx, 0).upcast());
+                            cx.emit(ParamEvent::EndSetParameter(&params.preset_source_idx).upcast());
+                            cx.emit(ParamEvent::BeginSetParameter(&params.preset_display_idx).upcast());
+                            cx.emit(ParamEvent::SetParameter(&params.preset_display_idx, preset_idx as i32).upcast());
+                            cx.emit(ParamEvent::EndSetParameter(&params.preset_display_idx).upcast());
+                            cx.emit(ParamEvent::BeginSetParameter(&params.user_preset_idx).upcast());
+                            cx.emit(ParamEvent::SetParameter(&params.user_preset_idx, preset_idx as i32).upcast());
+                            cx.emit(ParamEvent::EndSetParameter(&params.user_preset_idx).upcast());
+                            let path = user_preset_paths
+                                .lock()
+                                .ok()
+                                .and_then(|paths| paths.get(preset_idx).cloned());
+                            if let Some(path) = path {
+                                match presets::load_snapshot_from_path(&path) {
+                                    Ok(snapshot) => {
+                                        let comparison_snapshot = snapshot_for_loaded_params(&snapshot);
+                                        user_preset_state.set_snapshot(&comparison_snapshot);
+                                        apply_snapshot_to_params(cx, &params, &snapshot)
+                                    }
+                                    Err(err) => nih_plug::debug::nih_error!(
+                                        "Failed to load user preset from {}: {err}",
+                                        path.display()
+                                    ),
+                                }
+                            }
                         }
                     })
                     .class("widget");
                 });
+
                 let selected_user_preset_idx_for_save = selected_user_preset_idx.clone();
-                let user_preset_labels_for_save = user_preset_labels.clone();
                 let user_preset_paths_for_save = user_preset_paths.clone();
                 param_row(cx, "Presets", |cx| {
                     Button::new(
@@ -273,6 +294,12 @@ pub(crate) fn create(
                                     if let Some(saved_name) = saved_name {
                                         if let Some(saved_idx) = labels.iter().position(|name| name == &saved_name) {
                                             selected_user_preset_idx.store(saved_idx, Ordering::Relaxed);
+                                            cx.emit(ParamEvent::BeginSetParameter(&params.preset_source_idx).upcast());
+                                            cx.emit(ParamEvent::SetParameter(&params.preset_source_idx, 0).upcast());
+                                            cx.emit(ParamEvent::EndSetParameter(&params.preset_source_idx).upcast());
+                                            cx.emit(ParamEvent::BeginSetParameter(&params.preset_display_idx).upcast());
+                                            cx.emit(ParamEvent::SetParameter(&params.preset_display_idx, saved_idx as i32).upcast());
+                                            cx.emit(ParamEvent::EndSetParameter(&params.preset_display_idx).upcast());
                                             cx.emit(ParamEvent::BeginSetParameter(&params.user_preset_idx).upcast());
                                             cx.emit(ParamEvent::SetParameter(&params.user_preset_idx, saved_idx as i32).upcast());
                                             cx.emit(ParamEvent::EndSetParameter(&params.user_preset_idx).upcast());
@@ -292,69 +319,26 @@ pub(crate) fn create(
                     .class("widget");
                 });
 
-                param_row(cx, "Load User Presets", |cx| {
+                param_row(cx, "Window", |cx| {
                     PickList::new(
                         cx,
+                        Data::window_size_options,
                         {
-                            let user_preset_labels = user_preset_labels_for_save.clone();
-                            let user_preset_state = user_preset_state.clone();
-                            Data::params.map(move |p| {
-                                let mut labels = user_preset_labels
-                                    .lock()
-                                    .map(|shared| shared.clone())
-                                    .unwrap_or_else(|_| vec!["No presets found".to_string()]);
-
-                                if labels.is_empty() {
-                                    return vec!["No presets found".to_string()];
-                                }
-
-                                let selected_idx =
-                                    (p.user_preset_idx.value().max(0) as usize).min(labels.len() - 1);
-
-                                if !user_preset_state.matches_current() {
-                                    if let Some(label) = labels.get_mut(selected_idx) {
-                                        if !label.ends_with(" *") {
-                                            label.push_str(" *");
-                                        }
-                                    }
-                                }
-
-                                labels
+                            let selected_window_size_idx = selected_window_size_idx.clone();
+                            Data::params.map(move |_| {
+                                selected_window_size_idx
+                                    .load(Ordering::Relaxed)
+                                    .min(window_size_max_index)
                             })
                         },
-                        Data::params.map(move |p| {
-                            (p.user_preset_idx.value().max(0) as usize).min(user_preset_max_index)
-                        }),
                         true,
                     )
                     .on_select({
-                        let params = params.clone();
-                        let user_preset_paths = user_preset_paths.clone();
-                        let selected_user_preset_idx = selected_user_preset_idx.clone();
-                        let user_preset_state = user_preset_state.clone();
-                        move |cx, preset_idx| {
-                            selected_user_preset_idx.store(preset_idx, Ordering::Relaxed);
-
-                            cx.emit(ParamEvent::BeginSetParameter(&params.user_preset_idx).upcast());
-                            cx.emit(ParamEvent::SetParameter(&params.user_preset_idx, preset_idx as i32).upcast());
-                            cx.emit(ParamEvent::EndSetParameter(&params.user_preset_idx).upcast());
-                            let path = user_preset_paths
-                                .lock()
-                                .ok()
-                                .and_then(|paths| paths.get(preset_idx).cloned());
-                            if let Some(path) = path {
-                                match presets::load_snapshot_from_path(&path) {
-                                    Ok(snapshot) => {
-                                        let comparison_snapshot = snapshot_for_loaded_params(&snapshot);
-                                        user_preset_state.set_snapshot(&comparison_snapshot);
-                                        apply_snapshot_to_params(cx, &params, &snapshot)
-                                    }
-                                    Err(err) => nih_plug::debug::nih_error!(
-                                        "Failed to load user preset from {}: {err}",
-                                        path.display()
-                                    ),
-                                }
-                            }
+                        let selected_window_size_idx = selected_window_size_idx.clone();
+                        move |cx, size_idx| {
+                            selected_window_size_idx.store(size_idx, Ordering::Relaxed);
+                            apply_window_size_preset(size_idx);
+                            cx.emit(GuiContextEvent::Resize);
                         }
                     })
                     .class("widget");
@@ -475,6 +459,50 @@ fn effective_room_index(params: &GoldsrcPluginParams) -> usize {
     } else {
         CUSTOM_ROOM as usize
     }
+}
+fn apply_factory_preset(cx: &mut EventContext, params: &Arc<GoldsrcPluginParams>, room_idx: usize) {
+    let room = room_idx.min(PRESETS.len().saturating_sub(1)) as i32;
+    let preset = PRESETS[room as usize];
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.room, room).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.room).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_amplp).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_amplp, preset[0] >= 0.5).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_amplp).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_ampmod).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_ampmod, preset[1] >= 0.5).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_ampmod).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.reverb_size).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.reverb_size, preset[2]).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.reverb_size).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.reverb_feedback).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.reverb_feedback, preset[3]).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.reverb_feedback).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_revlp).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_revlp, preset[4] >= 0.5).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_revlp).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.delay_time).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.delay_time, preset[5]).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.delay_time).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.delay_feedback).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.delay_feedback, preset[6]).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.delay_feedback).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.enable_dellp).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.enable_dellp, preset[7] == 0.0).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.enable_dellp).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.haas_time).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.haas_time, preset[8]).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.haas_time).upcast());
 }
 fn snapshot_knobs(snapshot: &presets::PluginParamsSnapshot) -> [f32; 9] {
     [
@@ -633,7 +661,6 @@ fn sync_user_preset_state_from_selection(
 #[derive(Lens, Clone)]
 struct Data {
     params: Arc<GoldsrcPluginParams>,
-    room_options: Vec<String>,
     user_preset_options: Vec<String>,
     window_size_options: Vec<String>,
 }

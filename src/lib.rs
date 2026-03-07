@@ -199,6 +199,12 @@ struct GoldsrcPluginParams {
     #[id = "user_preset_idx"]
     pub user_preset_idx: IntParam,
 
+    #[id = "preset_source_idx"]
+    pub preset_source_idx: IntParam,
+
+    #[id = "preset_display_idx"]
+    pub preset_display_idx: IntParam,
+
     /// Persisted editor window state (scale factor, etc.).
     #[persist = "editor-state"]
     pub editor_state: Arc<ViziaState>,
@@ -350,6 +356,20 @@ impl Default for GoldsrcPluginParams {
                 "User Preset Index",
                 0,
                 IntRange::Linear { min: 0, max: 8192 },
+            )
+            .hide(),
+
+            preset_source_idx: IntParam::new(
+                "Preset Source Index",
+                1,
+                IntRange::Linear { min: 0, max: 1 },
+            )
+            .hide(),
+
+            preset_display_idx: IntParam::new(
+                "Preset Display Index",
+                DEFAULT_ROOM as i32,
+                IntRange::Linear { min: 0, max: 16384 },
             )
             .hide(),
         }
