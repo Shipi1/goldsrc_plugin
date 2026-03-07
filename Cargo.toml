@@ -1,6 +1,6 @@
 [package]
 name = "goldsrc_plugin"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 authors = ["shipi <ariasmartin1@gmail.com>"]
 license = "GPL-3.0-or-later"

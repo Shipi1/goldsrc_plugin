@@ -205,6 +205,9 @@ struct GoldsrcPluginParams {
     #[id = "preset_display_idx"]
     pub preset_display_idx: IntParam,
 
+    #[id = "window_size_idx"]
+    pub window_size_idx: IntParam,
+
     /// Persisted editor window state (scale factor, etc.).
     #[persist = "editor-state"]
     pub editor_state: Arc<ViziaState>,
@@ -368,8 +371,15 @@ impl Default for GoldsrcPluginParams {
 
             preset_display_idx: IntParam::new(
                 "Preset Display Index",
-                DEFAULT_ROOM as i32,
-                IntRange::Linear { min: 0, max: 16384 },
+                -1,
+                IntRange::Linear { min: -1, max: 16384 },
+            )
+            .hide(),
+
+            window_size_idx: IntParam::new(
+                "Window Size Index",
+                0,
+                IntRange::Linear { min: 0, max: 2 },
             )
             .hide(),
         }

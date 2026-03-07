@@ -118,11 +118,24 @@ pub(crate) fn load_snapshot_from_path(
 pub(crate) fn list_snapshot_files() -> Result<Vec<PathBuf>, PresetIoError> {
     let dir = preset_root_dir()?;
     let mut entries = Vec::new();
+    collect_snapshot_files(&dir, &mut entries)?;
 
-    for entry in fs::read_dir(&dir)? {
+    entries.sort();
+    println!(
+        "[presets] found {} snapshot file(s) in {}",
+        entries.len(),
+        dir.display()
+    );
+    Ok(entries)
+}
+
+fn collect_snapshot_files(dir: &Path, entries: &mut Vec<PathBuf>) -> Result<(), PresetIoError> {
+    for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path
+        if path.is_dir() {
+            collect_snapshot_files(&path, entries)?;
+        } else if path
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("json"))
@@ -132,13 +145,7 @@ pub(crate) fn list_snapshot_files() -> Result<Vec<PathBuf>, PresetIoError> {
         }
     }
 
-    entries.sort();
-    println!(
-        "[presets] found {} snapshot file(s) in {}",
-        entries.len(),
-        dir.display()
-    );
-    Ok(entries)
+    Ok(())
 }
 
 pub(crate) fn preset_root_dir() -> Result<PathBuf, PresetIoError> {

@@ -2,9 +2,8 @@ use nih_plug::prelude::*;
 use nih_plug_vizia::vizia::prelude::*;
 use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
-use rfd::AsyncFileDialog;
-use std::{
-    path::PathBuf,
+use rfd::AsyncFileDialog;use std::{
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
@@ -67,14 +66,15 @@ pub(crate) fn create(
         let user_preset_labels = Arc::new(Mutex::new(user_preset_options.clone()));
         let user_preset_paths = Arc::new(Mutex::new(user_preset_paths));
         let selected_user_preset_idx =
-            Arc::new(AtomicUsize::new(params.user_preset_idx.value().max(0) as usize));        sync_user_preset_state_from_selection(
+            Arc::new(AtomicUsize::new(params.user_preset_idx.value().max(0) as usize));
+        sync_user_preset_state_from_selection(
             &user_preset_state,
             &user_preset_paths,
             selected_user_preset_idx.load(Ordering::Relaxed),
         );
         let window_size_options = window_size_labels();
         let window_size_max_index = window_size_options.len().saturating_sub(1);
-        let selected_window_size_idx = Arc::new(AtomicUsize::new(0));
+        apply_window_size_preset(params.window_size_idx.value().clamp(0, window_size_max_index as i32) as usize);
 
         Data {
             params: params.clone(),
@@ -165,10 +165,10 @@ pub(crate) fn create(
                                 let user_count = user_preset_paths.lock().map(|paths| paths.len()).unwrap_or(0);
                                 let user_display_count = if user_count == 0 { 1 } else { user_count };
                                 let combined_count = user_display_count + PRESETS.len();
-                                let stored_idx = p.preset_display_idx.value().max(0) as usize;
+                                let stored_idx = p.preset_display_idx.value();
 
-                                if stored_idx < combined_count {
-                                    stored_idx
+                                if stored_idx >= 0 && (stored_idx as usize) < combined_count {
+                                    stored_idx as usize
                                 } else if p.preset_source_idx.value().clamp(0, 1) == 1 {
                                     user_display_count
                                         + p.room.value().clamp(0, (PRESETS.len() - 1) as i32) as usize
@@ -323,21 +323,20 @@ pub(crate) fn create(
                     PickList::new(
                         cx,
                         Data::window_size_options,
-                        {
-                            let selected_window_size_idx = selected_window_size_idx.clone();
-                            Data::params.map(move |_| {
-                                selected_window_size_idx
-                                    .load(Ordering::Relaxed)
-                                    .min(window_size_max_index)
-                            })
-                        },
+                        Data::params.map(move |p| {
+                            (p.window_size_idx.value().clamp(0, window_size_max_index as i32) as usize)
+                                .min(window_size_max_index)
+                        }),
                         true,
                     )
-                    .on_select({
-                        let selected_window_size_idx = selected_window_size_idx.clone();
+.on_select({
+                        let params = params.clone();
                         move |cx, size_idx| {
-                            selected_window_size_idx.store(size_idx, Ordering::Relaxed);
-                            apply_window_size_preset(size_idx);
+                            let size_idx = size_idx.min(window_size_max_index) as i32;
+                            cx.emit(ParamEvent::BeginSetParameter(&params.window_size_idx).upcast());
+                            cx.emit(ParamEvent::SetParameter(&params.window_size_idx, size_idx).upcast());
+                            cx.emit(ParamEvent::EndSetParameter(&params.window_size_idx).upcast());
+                            apply_window_size_preset(size_idx as usize);
                             cx.emit(GuiContextEvent::Resize);
                         }
                     })
@@ -608,23 +607,25 @@ fn apply_snapshot_to_params(
 fn available_user_presets() -> (Vec<String>, Vec<PathBuf>) {
     match presets::list_snapshot_files() {
         Ok(paths) => {
+            let root = match presets::preset_root_dir() {
+                Ok(root) => root,
+                Err(err) => {
+                    nih_plug::debug::nih_error!("Failed to resolve preset root for labels: {err}");
+                    return (vec!["No presets found".to_string()], Vec::new());
+                }
+            };
+
             let mut paths: Vec<PathBuf> = paths;
             paths.sort_by_key(|path: &PathBuf| {
-                path.file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(|s| s.to_ascii_lowercase())
-                    .unwrap_or_default()
+                let relative = path.strip_prefix(&root).unwrap_or(path);
+                let depth_group = if relative.components().count() > 1 { 1 } else { 0 };
+                let relative_key = relative.to_string_lossy().to_ascii_lowercase();
+                (depth_group, relative_key)
             });
 
             let labels = paths
                 .iter()
-                .map(|path: &PathBuf| {
-                    path.file_stem()
-                        .or_else(|| path.file_name())
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("Unnamed preset")
-                        .to_string()
-                })
+                .map(|path: &PathBuf| user_preset_label(&root, path))
                 .collect::<Vec<String>>();
 
             if labels.is_empty() {
@@ -639,8 +640,26 @@ fn available_user_presets() -> (Vec<String>, Vec<PathBuf>) {
         }
     }
 }
-// ─── Data model ──────────────────────────────────────────────────────────────
 
+fn user_preset_label(root: &Path, path: &Path) -> String {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let mut parts = relative
+        .iter()
+        .map(|part| part.to_string_lossy().to_string())
+        .collect::<Vec<String>>();
+
+    if let Some(last) = parts.last_mut() {
+        if let Some(stem) = Path::new(last).file_stem().and_then(|stem| stem.to_str()) {
+            *last = stem.to_string();
+        }
+    }
+
+    if parts.is_empty() {
+        "Unnamed preset".to_string()
+    } else {
+        parts.join(" / ")
+    }
+}
 fn sync_user_preset_state_from_selection(
     user_preset_state: &Arc<SharedUserPresetState>,
     user_preset_paths: &Arc<Mutex<Vec<PathBuf>>>,
