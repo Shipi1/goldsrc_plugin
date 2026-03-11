@@ -381,16 +381,47 @@ pub(crate) fn create(
                 });
             });
 
-            // ── Modulation ─────────────────────────────────────────────
-            section(cx, "MODULATION", |cx| {
-                param_row(cx, "Amp Mod", |cx| {
-                    ParamButton::new(cx, Data::params, |p| &p.enable_ampmod).with_label("Amp Mod");
+            // ── Modulation + I/O Gain ──────────────────────────────────
+            VStack::new(cx, |cx| {
+                HStack::new(cx, |cx| {
+                    Label::new(cx, "MODULATION").class("section-label")
+                        .width(Percentage(50.0));
+                    Label::new(cx, "I / O").class("section-label")
+                        .width(Percentage(50.0));
+                })
+                .height(Auto);
+                HStack::new(cx, |cx| {
+                    // ── Left: modulation controls ──────────────────────
+                    VStack::new(cx, |cx| {
+                        param_row(cx, "Amp Mod", |cx| {
+                            ParamButton::new(cx, Data::params, |p| &p.enable_ampmod)
+                                .with_label("Amp Mod");
+                        });
+                        param_row(cx, "Amp LPF", |cx| {
+                            ParamButton::new(cx, Data::params, |p| &p.enable_amplp)
+                                .with_label("Amp Mod LPF");
+                        });
+                    })
+                    .width(Percentage(50.0));
+
+                    // ── Right: I/O gain sliders ────────────────────────
+                    VStack::new(cx, |cx| {
+                        param_row(cx, "IN", |cx| {
+                            ParamSlider::new(cx, Data::params, |p| &p.input_gain_db)
+                                .set_style(ParamSliderStyle::Centered)
+                                .class("widget");
+                        });
+                        param_row(cx, "OUT", |cx| {
+                            ParamSlider::new(cx, Data::params, |p| &p.output_gain_db)
+                                .set_style(ParamSliderStyle::Centered)
+                                .class("widget");
+                        });
+                    })
+                    .width(Percentage(50.0))
+                    .class("io-gain");
                 });
-                param_row(cx, "Amp LPF", |cx| {
-                    ParamButton::new(cx, Data::params, |p| &p.enable_amplp)
-                        .with_label("Amp Mod LPF");
-                });
-            });
+            })
+            .class("section");
 
             // ── Stereo / Output ────────────────────────────────────────
             section(cx, "OUTPUT", |cx| {
@@ -599,6 +630,14 @@ fn apply_snapshot_to_params(
     cx.emit(ParamEvent::SetParameter(&params.seed, snapshot.seed).upcast());
     cx.emit(ParamEvent::EndSetParameter(&params.seed).upcast());
 
+    cx.emit(ParamEvent::BeginSetParameter(&params.input_gain_db).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.input_gain_db, snapshot.input_gain_db).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.input_gain_db).upcast());
+
+    cx.emit(ParamEvent::BeginSetParameter(&params.output_gain_db).upcast());
+    cx.emit(ParamEvent::SetParameter(&params.output_gain_db, snapshot.output_gain_db).upcast());
+    cx.emit(ParamEvent::EndSetParameter(&params.output_gain_db).upcast());
+
     let target_room = snapshot_target_room(snapshot);
     cx.emit(ParamEvent::BeginSetParameter(&params.room).upcast());
     cx.emit(ParamEvent::SetParameter(&params.room, target_room).upcast());
@@ -764,6 +803,8 @@ mod tests {
             enable_dellp: p[7] == 0.0, // inverted: dlylp==0.0 means LP is active
             haas_time: p[8],
             seed: 0,
+            input_gain_db: 0.0,
+            output_gain_db: 0.0,
         }
     }
 

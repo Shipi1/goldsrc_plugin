@@ -25,6 +25,12 @@ pub(crate) struct PluginParamsSnapshot {
     pub enable_dellp: bool,
     pub haas_time: f32,
     pub seed: i32,
+    /// Pre-DSP input gain in dB (0.0 = unity). Defaults to 0.0 for old presets.
+    #[serde(default)]
+    pub input_gain_db: f32,
+    /// Post-DSP output gain in dB (0.0 = unity). Defaults to 0.0 for old presets.
+    #[serde(default)]
+    pub output_gain_db: f32,
 }
 
 impl PluginParamsSnapshot {
@@ -44,6 +50,8 @@ impl PluginParamsSnapshot {
             enable_dellp: params.enable_dellp.value(),
             haas_time: params.haas_time.value(),
             seed: params.seed.value(),
+            input_gain_db: params.input_gain_db.value(),
+            output_gain_db: params.output_gain_db.value(),
         }
     }
 }
@@ -192,6 +200,8 @@ mod tests {
             enable_dellp: true,
             haas_time: 0.01,
             seed: 42,
+            input_gain_db: 0.0,
+            output_gain_db: 0.0,
         };
 
         let json = serde_json::to_string_pretty(&original).expect("serialize snapshot");
@@ -235,6 +245,8 @@ mod tests {
             enable_dellp: false,
             haas_time: 0.02,
             seed: 99,
+            input_gain_db: 0.0,
+            output_gain_db: 0.0,
         };
 
         let preset_path = test_dir.join("io_test.json");

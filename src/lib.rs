@@ -196,6 +196,14 @@ struct GoldsrcPluginParams {
     #[id = "seed"]
     pub seed: IntParam,
 
+    /// Pre-DSP input gain in dB. Applied before any DSP processing.
+    #[id = "input_gain_db"]
+    pub input_gain_db: FloatParam,
+
+    /// Post-DSP output gain in dB. Applied after dry/wet mix, before clipping.
+    #[id = "output_gain_db"]
+    pub output_gain_db: FloatParam,
+
     #[id = "user_preset_idx"]
     pub user_preset_idx: IntParam,
 
@@ -354,6 +362,24 @@ impl Default for GoldsrcPluginParams {
             })),
 
             seed: IntParam::new("RNG Seed", 42, IntRange::Linear { min: 0, max: 100 }),
+
+            input_gain_db: FloatParam::new(
+                "Input Gain",
+                0.0,
+                FloatRange::Linear { min: -24.0, max: 24.0 },
+            )
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Logarithmic(5.0)),
+
+            output_gain_db: FloatParam::new(
+                "Output Gain",
+                0.0,
+                FloatRange::Linear { min: -24.0, max: 24.0 },
+            )
+            .with_unit(" dB")
+            .with_value_to_string(formatters::v2s_f32_rounded(2))
+            .with_smoother(SmoothingStyle::Logarithmic(5.0)),
 
             user_preset_idx: IntParam::new(
                 "User Preset Index",
@@ -522,6 +548,13 @@ impl Plugin for GoldsrcPlugin {
             self.scratch_r[..n].copy_from_slice(&channels[1][..n]);
         }
 
+        // ── Input gain ─────────────────────────────────────────────────────
+        for i in 0..n {
+            let g = util::db_to_gain(self.params.input_gain_db.smoothed.next());
+            self.scratch_l[i] *= g;
+            self.scratch_r[i] *= g;
+        }
+
         // ── Run DSP ────────────────────────────────────────────────────────
         {
             let reverb = match self.reverb.as_mut() {
@@ -546,6 +579,13 @@ impl Plugin for GoldsrcPlugin {
                 &mut self.out_l[..n],
                 &mut self.out_r[..n],
             );
+        }
+
+        // ── Output gain ────────────────────────────────────────────────────
+        for i in 0..n {
+            let g = util::db_to_gain(self.params.output_gain_db.smoothed.next());
+            self.out_l[i] *= g;
+            self.out_r[i] *= g;
         }
 
         // ── Write back to host buffer ──────────────────────────────────────

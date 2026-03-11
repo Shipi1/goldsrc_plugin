@@ -325,6 +325,15 @@ dropdown popup label:checked {
     font-weight: bold;
 }
 
+/* I/O gain section — turquoise accent */
+.io-gain .row .label {
+    width: 32px;
+}
 
+.io-gain param-slider .fill {
+    background-color: #e94560;
+}
 
-
+.io-gain param-slider .fill--modulation {
+    background-color: #2dd4bf50;
+}
