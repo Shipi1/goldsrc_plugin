@@ -146,6 +146,23 @@ param-button:checked {
     transition: background-color 100ms;
 }
 
+/* Lock button — compact toggle next to sliders */
+.lock-button {
+    width: 40px;
+    height: 1s;
+    child-space: 1s;
+    border-color: #0f3460;
+    border-width: 1px;
+    background-color: #0e1a3300;
+    color: #8888aa;
+    font-size: 10;
+}
+
+.lock-button:checked {
+    background-color: #0f3460;
+    color: #e0e0e0;
+}
+
 /* Dropdown / picklist styling for Room preset selection */
 picklist {
     width: 320px;
@@ -297,17 +314,14 @@ dropdown popup label:checked {
 /* Save preset button sizing + style override */
 .room-section button.preset-button,
 .room-section .preset-button {
-    width: 50%;
-    height: 28px;
+    width: 12%;
+    height: 22px;
     border-width: 1px;
     border-color: #2f5ea3;
     border-radius: 4px;
     background-color: #2a4f8e;
     color: #e0e0e0;
-    child-left: 8px;
-    child-right: 8px;
-    child-top: 1s;
-    child-bottom: 1s;
+    child-space: 1s;
 }
 
 .room-section button.preset-button:hover,

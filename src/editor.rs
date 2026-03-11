@@ -315,8 +315,7 @@ pub(crate) fn create(
                         },
                         |cx| Label::new(cx, "Save"),
                     )
-                    .class("preset-button")
-                    .class("widget");
+                    .class("preset-button");
                 });
 
                 param_row(cx, "Window", |cx| {
@@ -346,6 +345,9 @@ pub(crate) fn create(
             section(cx, "MIX", |cx| {
                 param_row(cx, "Reverb Mix", |cx| {
                     ParamSlider::new(cx, Data::params, |p| &p.reverb_mix).class("widget");
+                    ParamButton::new(cx, Data::params, |p| &p.lock_reverb_mix)
+                        .with_label("Lock")
+                        .class("lock-button");
                 });
                 param_row(cx, "Echo Level", |cx| {
                     ParamSlider::new(cx, Data::params, |p| &p.delay_mix).class("widget");
@@ -578,9 +580,11 @@ fn apply_snapshot_to_params(
     params: &Arc<GoldsrcPluginParams>,
     snapshot: &presets::PluginParamsSnapshot,
 ) {
-    cx.emit(ParamEvent::BeginSetParameter(&params.reverb_mix).upcast());
-    cx.emit(ParamEvent::SetParameter(&params.reverb_mix, snapshot.reverb_mix).upcast());
-    cx.emit(ParamEvent::EndSetParameter(&params.reverb_mix).upcast());
+    if !params.lock_reverb_mix.value() {
+        cx.emit(ParamEvent::BeginSetParameter(&params.reverb_mix).upcast());
+        cx.emit(ParamEvent::SetParameter(&params.reverb_mix, snapshot.reverb_mix).upcast());
+        cx.emit(ParamEvent::EndSetParameter(&params.reverb_mix).upcast());
+    }
 
     cx.emit(ParamEvent::BeginSetParameter(&params.delay_mix).upcast());
     cx.emit(ParamEvent::SetParameter(&params.delay_mix, snapshot.delay_mix).upcast());

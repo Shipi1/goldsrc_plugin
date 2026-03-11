@@ -56,6 +56,8 @@ pub(crate) struct SharedUserPresetState {
     enable_dellp: AtomicBool,
     haas_time: AtomicU32,
     seed: AtomicI32,
+    input_gain_db: AtomicU32,
+    output_gain_db: AtomicU32,
 }
 
 impl SharedUserPresetState {
@@ -77,6 +79,8 @@ impl SharedUserPresetState {
             enable_dellp: AtomicBool::new(false),
             haas_time: AtomicU32::new(0),
             seed: AtomicI32::new(0),
+            input_gain_db: AtomicU32::new(0),
+            output_gain_db: AtomicU32::new(0),
         }
     }
 
@@ -106,6 +110,10 @@ impl SharedUserPresetState {
         self.haas_time
             .store(snapshot.haas_time.to_bits(), Ordering::Relaxed);
         self.seed.store(snapshot.seed, Ordering::Relaxed);
+        self.input_gain_db
+            .store(snapshot.input_gain_db.to_bits(), Ordering::Relaxed);
+        self.output_gain_db
+            .store(snapshot.output_gain_db.to_bits(), Ordering::Relaxed);
         self.has_snapshot.store(true, Ordering::Relaxed);
         self.matches_current.store(true, Ordering::Relaxed);
     }
@@ -131,6 +139,9 @@ impl SharedUserPresetState {
             && self.enable_dellp.load(Ordering::Relaxed) == params.enable_dellp.value()
             && self.haas_time.load(Ordering::Relaxed) == params.haas_time.value().to_bits()
             && self.seed.load(Ordering::Relaxed) == params.seed.value()
+            && self.input_gain_db.load(Ordering::Relaxed) == params.input_gain_db.value().to_bits()
+            && self.output_gain_db.load(Ordering::Relaxed)
+                == params.output_gain_db.value().to_bits()
     }
 
     pub(crate) fn update_match_flag(&self, params: &GoldsrcPluginParams) {
@@ -155,6 +166,10 @@ struct GoldsrcPluginParams {
     /// GoldSrc engine default: 0.17 (17 %).
     #[id = "reverb_mix"]
     pub reverb_mix: FloatParam,
+
+    /// When true, reverb mix is preserved across preset changes.
+    #[id = "lock_reverb_mix"]
+    pub lock_reverb_mix: BoolParam,
 
     /// Mono echo wet level. 0.0 = off, 1.0 = full.
     /// GoldSrc engine default: 0.25 (25 %).
@@ -271,7 +286,10 @@ impl Default for GoldsrcPluginParams {
             room: IntParam::new(
                 "Room Type",
                 DEFAULT_ROOM as i32,
-                IntRange::Linear { min: 0, max: CUSTOM_ROOM },
+                IntRange::Linear {
+                    min: 0,
+                    max: CUSTOM_ROOM,
+                },
             )
             .with_value_to_string(Arc::new(|v: i32| {
                 let idx = v.max(0) as usize;
@@ -286,6 +304,16 @@ impl Default for GoldsrcPluginParams {
             .with_unit("%")
             .with_value_to_string(formatters::v2s_f32_percentage(1))
             .with_string_to_value(formatters::s2v_f32_percentage()),
+
+            lock_reverb_mix: BoolParam::new("Lock Reverb Mix", false)
+                .with_value_to_string(Arc::new(|v| {
+                    if v {
+                        "\u{25CF}".to_string()
+                    } else {
+                        "\u{25CB}".to_string()
+                    }
+                }))
+                .hide(),
 
             delay_mix: FloatParam::new(
                 "Echo Level",
@@ -333,7 +361,11 @@ impl Default for GoldsrcPluginParams {
             .with_unit(" ms")
             .with_value_to_string(Arc::new(|v| format!("{:.0}", v * 1000.0)))
             .with_string_to_value(Arc::new(|s| {
-                s.trim_end_matches("ms").trim().parse::<f32>().ok().map(|v| v / 1000.0)
+                s.trim_end_matches("ms")
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .map(|v| v / 1000.0)
             })),
             delay_feedback: FloatParam::new(
                 "Echo Feedback",
@@ -346,10 +378,13 @@ impl Default for GoldsrcPluginParams {
             .with_unit("%")
             .with_value_to_string(formatters::v2s_f32_percentage(1))
             .with_string_to_value(formatters::s2v_f32_percentage()),
-            enable_dellp: BoolParam::new("Echo LPF", true)
-                .with_value_to_string(Arc::new(|v| {
-                    if v { "On".to_string() } else { "Off".to_string() }
-                })),
+            enable_dellp: BoolParam::new("Echo LPF", true).with_value_to_string(Arc::new(|v| {
+                if v {
+                    "On".to_string()
+                } else {
+                    "Off".to_string()
+                }
+            })),
             haas_time: FloatParam::new(
                 "Haas Time",
                 0.01,
@@ -358,7 +393,11 @@ impl Default for GoldsrcPluginParams {
             .with_unit(" ms")
             .with_value_to_string(Arc::new(|v| format!("{:.0}", v * 1000.0)))
             .with_string_to_value(Arc::new(|s| {
-                s.trim_end_matches("ms").trim().parse::<f32>().ok().map(|v| v / 1000.0)
+                s.trim_end_matches("ms")
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .map(|v| v / 1000.0)
             })),
 
             seed: IntParam::new("RNG Seed", 42, IntRange::Linear { min: 0, max: 100 }),
@@ -366,7 +405,10 @@ impl Default for GoldsrcPluginParams {
             input_gain_db: FloatParam::new(
                 "Input Gain",
                 0.0,
-                FloatRange::Linear { min: -24.0, max: 24.0 },
+                FloatRange::Linear {
+                    min: -24.0,
+                    max: 24.0,
+                },
             )
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_rounded(2))
@@ -375,7 +417,10 @@ impl Default for GoldsrcPluginParams {
             output_gain_db: FloatParam::new(
                 "Output Gain",
                 0.0,
-                FloatRange::Linear { min: -24.0, max: 24.0 },
+                FloatRange::Linear {
+                    min: -24.0,
+                    max: 24.0,
+                },
             )
             .with_unit(" dB")
             .with_value_to_string(formatters::v2s_f32_rounded(2))
@@ -398,7 +443,10 @@ impl Default for GoldsrcPluginParams {
             preset_display_idx: IntParam::new(
                 "Preset Display Index",
                 -1,
-                IntRange::Linear { min: -1, max: 16384 },
+                IntRange::Linear {
+                    min: -1,
+                    max: 16384,
+                },
             )
             .hide(),
 
@@ -622,20 +670,3 @@ impl Vst3Plugin for GoldsrcPlugin {
 
 nih_export_clap!(GoldsrcPlugin);
 nih_export_vst3!(GoldsrcPlugin);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
