@@ -165,7 +165,7 @@ param-button:checked {
 
 /* Dropdown / picklist styling for Room preset selection */
 picklist {
-    width: 320px;
+    width: 1s;
     height: 24px;
     border-color: transparent;
     border-width: 0px;
@@ -255,7 +255,7 @@ dropdown popup label:checked {
 }
 
 .room-section .row .widget {
-    width: 320px;
+    width: 1s;
 }
 
 .room-section .preset-button {

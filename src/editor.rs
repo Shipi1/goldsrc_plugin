@@ -237,18 +237,13 @@ pub(crate) fn create(
                         }
                     })
                     .class("widget");
-                });
-
-                let selected_user_preset_idx_for_save = selected_user_preset_idx.clone();
-                let user_preset_paths_for_save = user_preset_paths.clone();
-                param_row(cx, "Presets", |cx| {
-                    Button::new(
-                        cx,
-                        {
-                            let params = params.clone();
-                            let selected_user_preset_idx = selected_user_preset_idx_for_save.clone();
-                            let user_preset_paths = user_preset_paths_for_save.clone();
-                            let user_preset_state = user_preset_state.clone();
+                    {
+                        let params = params.clone();
+                        let selected_user_preset_idx = selected_user_preset_idx.clone();
+                        let user_preset_paths = user_preset_paths.clone();
+                        let user_preset_state = user_preset_state.clone();
+                        Button::new(
+                            cx,
                             move |cx| {
                                 let default_dir = match presets::preset_root_dir() {
                                     Ok(path) => path,
@@ -312,11 +307,11 @@ pub(crate) fn create(
                                     }
                                     cx.emit(DataEvent::SetUserPresetOptions(labels));
                                 }
-                            }
-                        },
-                        |cx| Label::new(cx, "Save"),
-                    )
-                    .class("preset-button");
+                            },
+                            |cx| Label::new(cx, "Save"),
+                        )
+                        .class("preset-button");
+                    }
                 });
 
                 param_row(cx, "Window", |cx| {
