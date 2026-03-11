@@ -2,7 +2,8 @@ use nih_plug::prelude::*;
 use nih_plug_vizia::vizia::prelude::*;
 use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
-use rfd::AsyncFileDialog;use std::{
+use rfd::AsyncFileDialog;
+use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU32, AtomicUsize, Ordering},

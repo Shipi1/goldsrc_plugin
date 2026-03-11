@@ -258,13 +258,6 @@ dropdown popup label:checked {
     width: 320px;
 }
 
-.room-section .preset-actions {
-    layout-type: row;
-    width: 1s;
-    height: auto;
-    col-between: 6px;
-}
-
 .room-section .preset-button {
     width: 1s;
     height: 24px;

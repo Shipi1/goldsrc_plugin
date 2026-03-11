@@ -305,15 +305,7 @@ impl Default for GoldsrcPluginParams {
             .with_value_to_string(formatters::v2s_f32_percentage(1))
             .with_string_to_value(formatters::s2v_f32_percentage()),
 
-            lock_reverb_mix: BoolParam::new("Lock Reverb Mix", false)
-                .with_value_to_string(Arc::new(|v| {
-                    if v {
-                        "\u{25CF}".to_string()
-                    } else {
-                        "\u{25CB}".to_string()
-                    }
-                }))
-                .hide(),
+            lock_reverb_mix: BoolParam::new("Lock Reverb Mix", false).hide(),
 
             delay_mix: FloatParam::new(
                 "Echo Level",
@@ -571,20 +563,14 @@ impl Plugin for GoldsrcPlugin {
             }
         } else {
             let knobs = build_preset_from_params(&self.params);
-            let mut knob_changed = false;
 
             for i in 0..9 {
                 if knobs[i] != self.knob_snapshot[i] {
-                    // This knob was moved by the user - apply it.
                     self.current_preset[i] = knobs[i];
                     self.knob_snapshot[i] = knobs[i];
-                    knob_changed = true;
                 }
             }
 
-            if knob_changed && room != CUSTOM_ROOM {
-                // The editor derives and displays Custom when knobs diverge from a factory room.
-            }
         }
         // ── Copy host input into scratch buffers ───────────────────────────
         {
