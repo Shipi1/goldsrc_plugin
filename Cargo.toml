@@ -1,6 +1,6 @@
 [package]
 name = "goldsrc_plugin"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 authors = ["shipi <ariasmartin1@gmail.com>"]
 license = "GPL-3.0-or-later"
@@ -16,7 +16,7 @@ crate-type = ["cdylib"]
 [dependencies]
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs"] }
 nih_plug_vizia = { git = "https://github.com/robbert-vdh/nih-plug.git" }
-goldsrc_dsp = { git = "https://github.com/Shipi1/goldsrc_dsp.git", rev = "9695b98" }
+goldsrc_dsp = { git = "https://github.com/Shipi1/goldsrc_dsp.git", rev = "7852b67" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rfd = "0.14"

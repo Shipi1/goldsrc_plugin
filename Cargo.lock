@@ -1638,8 +1638,7 @@ dependencies = [
 
 [[package]]
 name = "goldsrc_dsp"
-version = "0.3.0"
-source = "git+https://github.com/Shipi1/goldsrc_dsp.git?rev=9695b98#9695b98a805a3939f2d25afed277a6b7ef706568"
+version = "0.4.1"
 dependencies = [
  "clap",
  "hound",
@@ -1648,7 +1647,7 @@ dependencies = [
 
 [[package]]
 name = "goldsrc_plugin"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "goldsrc_dsp",
  "nih_plug",
